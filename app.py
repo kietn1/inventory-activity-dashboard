@@ -57,13 +57,31 @@ def clean_text(value):
     return str(value).strip()
 
 
+def safe_row_text(row):
+    """
+    Convert every cell in a row to safe lowercase text.
+    This prevents error:
+    TypeError: sequence item expected str instance, float found
+    """
+    row_values = []
+
+    for value in row.tolist():
+        if pd.isna(value):
+            row_values.append("")
+        else:
+            row_values.append(str(value).strip().lower())
+
+    return " ".join(row_values)
+
+
 def find_header_row(raw_df):
     """
     Find the header row automatically.
     We look for row containing both SKU and Activity Date.
     """
-    for i in range(min(50, len(raw_df))):
-        row_text = " ".join(raw_df.iloc[i].astype(str).str.lower().tolist())
+    for i in range(min(80, len(raw_df))):
+        row_text = safe_row_text(raw_df.iloc[i])
+
         if "sku" in row_text and "activity date" in row_text:
             return i
 
@@ -98,24 +116,31 @@ def parse_item_activity_report(uploaded_file):
     for idx in range(header_row + 1, len(raw)):
         row = raw.iloc[idx]
 
-        # Based on the current report layout
         sku_cell = row.iloc[0] if len(row) > 0 else None
         description_cell = row.iloc[2] if len(row) > 2 else None
         packed_cell = row.iloc[6] if len(row) > 6 else None
 
-        # Detect new SKU block
+        # Detect a new SKU block
         if pd.notna(sku_cell) and str(sku_cell).strip() != "":
             sku_text = str(sku_cell).strip()
 
-            # Ignore useless rows
-            if sku_text.lower() not in ["sku", "nan"]:
+            ignored_words = [
+                "sku",
+                "nan",
+                "warehouse",
+                "customer",
+                "item activity",
+                "activity date"
+            ]
+
+            if sku_text.lower() not in ignored_words:
                 current_sku = sku_text
                 current_description = clean_text(description_cell)
                 current_packed = extract_number(packed_cell)
 
             continue
 
-        # Transaction columns
+        # Transaction columns based on current file layout
         activity_date_raw = row.iloc[7] if len(row) > 7 else None
         trans_no = row.iloc[9] if len(row) > 9 else None
         ref_no = row.iloc[10] if len(row) > 10 else None
@@ -198,7 +223,6 @@ def build_summary(df):
     min_date = tx["Activity Date"].min()
     max_date = tx["Activity Date"].max()
 
-    # Current balance = latest transaction balance per SKU
     sorted_df = df.copy()
     sorted_df["Sort Date"] = sorted_df["Activity Date"].fillna(pd.Timestamp.min)
 
@@ -249,7 +273,14 @@ def build_summary(df):
 
     summary = latest_balance.copy()
 
-    for small_df in [total_inbound, total_outbound, last_activity, outbound_30, outbound_14, outbound_7]:
+    for small_df in [
+        total_inbound,
+        total_outbound,
+        last_activity,
+        outbound_30,
+        outbound_14,
+        outbound_7
+    ]:
         summary = summary.merge(small_df, on="SKU", how="left")
 
     fill_cols = [
@@ -319,14 +350,25 @@ st.sidebar.write(
     """
 )
 
+st.sidebar.divider()
+
+st.sidebar.write("### Risk Level Logic")
+st.sidebar.write(
+    """
+    Critical: 0-7 days remaining  
+    Warning: 8-14 days remaining  
+    Watch: 15-30 days remaining  
+    Safe: More than 30 days remaining  
+    No Recent Movement: No outbound in last 30 days  
+    """
+)
+
+
 uploaded_file = st.file_uploader(
     "Upload / Drop Excel file here",
     type=["xlsx"],
     help="Upload Item Activity Report exported from WMS."
 )
-
-# Streamlit file_uploader displays an upload widget; uploaded files are passed to Python for processing.
-# Default limit is 200MB unless configured otherwise.
 
 
 # =========================
@@ -341,9 +383,14 @@ else:
         df = parse_item_activity_report(uploaded_file)
         summary, tx, min_date, max_date = build_summary(df)
 
-        st.success(f"File processed successfully. Report range: {min_date.date()} to {max_date.date()}")
+        st.success(
+            f"File processed successfully. Report range: {min_date.date()} to {max_date.date()}"
+        )
 
+        # =========================
         # KPI CARDS
+        # =========================
+
         total_skus = summary["SKU"].nunique()
         total_balance = summary["Balance"].sum()
         total_inbound = summary["Total Inbound"].sum()
@@ -369,7 +416,7 @@ else:
         ])
 
         # =========================
-        # TAB 1 OVERVIEW
+        # TAB 1: OVERVIEW
         # =========================
 
         with tab1:
@@ -383,6 +430,7 @@ else:
                     .value_counts()
                     .reset_index()
                 )
+
                 risk_counts.columns = ["Risk Level", "SKU Count"]
 
                 fig_risk = px.pie(
@@ -391,6 +439,7 @@ else:
                     values="SKU Count",
                     title="SKU Risk Distribution"
                 )
+
                 st.plotly_chart(fig_risk, use_container_width=True)
 
             with c2:
@@ -403,12 +452,18 @@ else:
                     top_outbound,
                     x="SKU",
                     y="Total Outbound",
-                    hover_data=["Description", "Balance", "Risk Level"],
+                    hover_data=[
+                        "Description",
+                        "Balance",
+                        "Risk Level"
+                    ],
                     title="Top 15 Outbound SKUs"
                 )
+
                 st.plotly_chart(fig_top, use_container_width=True)
 
             st.subheader("SKU Summary Table")
+
             st.dataframe(
                 summary.sort_values("Total Outbound", ascending=False),
                 use_container_width=True,
@@ -416,13 +471,19 @@ else:
             )
 
         # =========================
-        # TAB 2 SHORTAGE FORECAST
+        # TAB 2: SHORTAGE FORECAST
         # =========================
 
         with tab2:
             st.subheader("Shortage Forecast")
 
-            risk_options = ["Critical", "Warning", "Watch", "Safe", "No Recent Movement"]
+            risk_options = [
+                "Critical",
+                "Warning",
+                "Watch",
+                "Safe",
+                "No Recent Movement"
+            ]
 
             selected_risks = st.multiselect(
                 "Risk Level Filter",
@@ -430,10 +491,22 @@ else:
                 default=["Critical", "Warning", "Watch"]
             )
 
-            shortage_view = summary[summary["Risk Level"].isin(selected_risks)].copy()
+            shortage_view = summary[
+                summary["Risk Level"].isin(selected_risks)
+            ].copy()
+
+            risk_order = {
+                "Critical": 1,
+                "Warning": 2,
+                "Watch": 3,
+                "Safe": 4,
+                "No Recent Movement": 5
+            }
+
+            shortage_view["Risk Sort"] = shortage_view["Risk Level"].map(risk_order)
 
             shortage_view = shortage_view.sort_values(
-                ["Risk Level", "Days Remaining"],
+                ["Risk Sort", "Days Remaining"],
                 ascending=[True, True]
             )
 
@@ -467,7 +540,7 @@ else:
             )
 
         # =========================
-        # TAB 3 MOVEMENT TREND
+        # TAB 3: MOVEMENT TREND
         # =========================
 
         with tab3:
@@ -515,7 +588,7 @@ else:
             )
 
         # =========================
-        # TAB 4 SKU DETAIL
+        # TAB 4: SKU DETAIL
         # =========================
 
         with tab4:
@@ -532,6 +605,7 @@ else:
 
             if not sku_summary.empty:
                 st.write("### SKU Summary")
+
                 st.dataframe(
                     sku_summary,
                     use_container_width=True,
@@ -541,6 +615,7 @@ else:
             sku_tx = tx[tx["SKU"] == selected_sku].sort_values("Activity Date")
 
             st.write("### Transaction History")
+
             st.dataframe(
                 sku_tx,
                 use_container_width=True,
@@ -553,21 +628,28 @@ else:
                     x="Activity Date",
                     y="Balance",
                     markers=True,
-                    hover_data=["Trans #", "Ref #", "Qty In", "Qty Out"],
+                    hover_data=[
+                        "Trans #",
+                        "Ref #",
+                        "Qty In",
+                        "Qty Out"
+                    ],
                     title=f"Balance Trend - {selected_sku}"
                 )
 
                 st.plotly_chart(fig_sku_balance, use_container_width=True)
 
         # =========================
-        # TAB 5 EXCEPTIONS
+        # TAB 5: EXCEPTIONS
         # =========================
 
         with tab5:
             st.subheader("Exception Report")
 
             st.write("### Cancelled Transactions")
+
             cancelled = df[df["Is Cancelled"] == True]
+
             st.dataframe(
                 cancelled,
                 use_container_width=True,
@@ -575,10 +657,12 @@ else:
             )
 
             st.write("### Zero Balance with Recent Outbound")
+
             zero_recent = summary[
                 (summary["Balance"] <= 0)
                 & (summary["Outbound Last 30 Days"] > 0)
             ]
+
             st.dataframe(
                 zero_recent,
                 use_container_width=True,
@@ -586,6 +670,7 @@ else:
             )
 
             st.write("### Fast Moving but Low Balance")
+
             fast_low = summary[
                 (summary["Outbound Last 30 Days"] > 0)
                 & (summary["Days Remaining"] <= 30)
@@ -598,9 +683,11 @@ else:
             )
 
             st.write("### No Recent Movement")
+
             no_movement = summary[
                 summary["Risk Level"] == "No Recent Movement"
             ]
+
             st.dataframe(
                 no_movement,
                 use_container_width=True,
@@ -633,4 +720,5 @@ else:
 
     except Exception as e:
         st.error("Something went wrong while processing the file.")
+        st.write("Please check whether the uploaded file is the correct Item Activity Report format.")
         st.exception(e)
