@@ -138,6 +138,14 @@ def extract_report_range(raw_df):
     return report_start, report_end
 
 
+def set_risk_filter(values):
+    """
+    Keep KPI buttons and shortage tab filter aligned.
+    """
+    st.session_state["risk_filter_click"] = values
+    st.session_state["shortage_risk_filter"] = values
+
+
 def parse_item_activity_report(uploaded_file):
     """
     Main parser for Item Activity Report.
@@ -147,7 +155,7 @@ def parse_item_activity_report(uploaded_file):
     - Transaction rows below SKU have blank SKU
     - Activity Date / Trans# / Ref# / Qty In / Qty Out / Balance
     - Ending Balance row
-    - Total row
+    - Total row where Ref # = Total
     """
 
     raw = pd.read_excel(uploaded_file, sheet_name=0, header=None)
@@ -203,70 +211,80 @@ def parse_item_activity_report(uploaded_file):
         balance = row.iloc[19] if len(row) > 19 else None
         ctn_balance = row.iloc[20] if len(row) > 20 else None
 
-        if current_sku and pd.notna(activity_date_raw):
-            activity_text = clean_text(activity_date_raw)
+        activity_text = clean_text(activity_date_raw)
+        trans_text = clean_text(trans_no)
+        ref_text = clean_text(ref_no)
 
-            if activity_text == "":
-                continue
+        activity_text_lower = activity_text.lower()
+        ref_text_lower = ref_text.lower()
 
-            activity_text_lower = activity_text.lower()
+        is_beginning_balance = activity_text_lower == "beginning balance"
+        is_ending_balance = activity_text_lower == "ending balance"
 
-            is_beginning_balance = activity_text_lower == "beginning balance"
-            is_ending_balance = activity_text_lower == "ending balance"
-            is_total_row = activity_text_lower == "total"
+        # IMPORTANT:
+        # In this report, official Total row is in Ref # column, not Activity Date column.
+        is_total_row = ref_text_lower == "total"
 
-            if is_beginning_balance or is_ending_balance or is_total_row:
-                activity_date = pd.NaT
-            else:
-                activity_date = pd.to_datetime(activity_text, errors="coerce")
-
-            qty_in_num = extract_number(qty_in)
-            qty_out_num = extract_number(qty_out)
-            balance_num = extract_number(balance)
-            ctn_balance_num = extract_number(ctn_balance)
-
-            if is_beginning_balance:
-                movement_type = "Beginning Balance"
-            elif is_ending_balance:
-                movement_type = "Ending Balance"
-            elif is_total_row:
-                movement_type = "Total"
-            elif qty_in_num > 0 and qty_out_num == 0:
-                movement_type = "Inbound"
-            elif qty_out_num > 0 and qty_in_num == 0:
-                movement_type = "Outbound"
-            elif qty_in_num > 0 and qty_out_num > 0:
-                movement_type = "Mixed"
-            else:
-                movement_type = "No Movement"
-
-            ref_text = clean_text(ref_no)
-            trans_text = clean_text(trans_no)
-
-            is_cancelled = (
-                "cancel" in ref_text.lower()
-                or "cancel" in trans_text.lower()
+        should_keep_row = (
+            current_sku is not None
+            and (
+                activity_text != ""
+                or is_total_row
             )
+        )
 
-            records.append({
-                "Source Row": idx + 1,
-                "SKU": current_sku,
-                "Description": current_description,
-                "Packed": current_packed,
-                "Activity Date": activity_date,
-                "Activity Text": activity_text,
-                "Trans #": trans_text,
-                "Ref #": ref_text,
-                "Qty In": qty_in_num,
-                "Qty Out": qty_out_num,
-                "Balance": balance_num,
-                "Ctn Balance": ctn_balance_num,
-                "Movement Type": movement_type,
-                "Is Beginning Balance": is_beginning_balance,
-                "Is Ending Balance": is_ending_balance,
-                "Is Total Row": is_total_row,
-                "Is Cancelled": is_cancelled
-            })
+        if not should_keep_row:
+            continue
+
+        if is_beginning_balance or is_ending_balance or is_total_row:
+            activity_date = pd.NaT
+        else:
+            activity_date = pd.to_datetime(activity_text, errors="coerce")
+
+        qty_in_num = extract_number(qty_in)
+        qty_out_num = extract_number(qty_out)
+        balance_num = extract_number(balance)
+        ctn_balance_num = extract_number(ctn_balance)
+
+        if is_beginning_balance:
+            movement_type = "Beginning Balance"
+        elif is_ending_balance:
+            movement_type = "Ending Balance"
+        elif is_total_row:
+            movement_type = "Total"
+        elif qty_in_num > 0 and qty_out_num == 0:
+            movement_type = "Inbound"
+        elif qty_out_num > 0 and qty_in_num == 0:
+            movement_type = "Outbound"
+        elif qty_in_num > 0 and qty_out_num > 0:
+            movement_type = "Mixed"
+        else:
+            movement_type = "No Movement"
+
+        is_cancelled = (
+            "cancel" in ref_text.lower()
+            or "cancel" in trans_text.lower()
+        )
+
+        records.append({
+            "Source Row": idx + 1,
+            "SKU": current_sku,
+            "Description": current_description,
+            "Packed": current_packed,
+            "Activity Date": activity_date,
+            "Activity Text": activity_text,
+            "Trans #": trans_text,
+            "Ref #": ref_text,
+            "Qty In": qty_in_num,
+            "Qty Out": qty_out_num,
+            "Balance": balance_num,
+            "Ctn Balance": ctn_balance_num,
+            "Movement Type": movement_type,
+            "Is Beginning Balance": is_beginning_balance,
+            "Is Ending Balance": is_ending_balance,
+            "Is Total Row": is_total_row,
+            "Is Cancelled": is_cancelled
+        })
 
     df = pd.DataFrame(records)
 
@@ -283,8 +301,8 @@ def build_summary(df, report_start=None, report_end=None):
     Correct logic:
     - Ending Balance comes from official Ending Balance row
     - Ending Ctn Balance comes from official Ending Balance row
-    - Total Inbound comes from official Total row
-    - Total Outbound comes from official Total row
+    - Total Inbound comes from official Total row, where Ref # = Total
+    - Total Outbound comes from official Total row, where Ref # = Total
     - Recent usage comes from actual dated transactions
     - Forecast uses Ending Balance + recent usage
     """
@@ -358,15 +376,17 @@ def build_summary(df, report_start=None, report_end=None):
             total_rows
             .sort_values(["SKU", "Source Order"])
             .groupby("SKU", as_index=False)
-            .tail(1)[["SKU", "Qty In", "Qty Out"]]
+            .tail(1)[["SKU", "Qty In", "Qty Out", "Source Row"]]
             .rename(columns={
                 "Qty In": "Total Inbound",
-                "Qty Out": "Total Outbound"
+                "Qty Out": "Total Outbound",
+                "Source Row": "Official Total Source Row"
             })
         )
 
         total_inbound = official_totals[["SKU", "Total Inbound"]]
         total_outbound = official_totals[["SKU", "Total Outbound"]]
+        total_source_rows = official_totals[["SKU", "Official Total Source Row"]]
 
     else:
         # Fallback only if report does not contain official Total rows
@@ -381,6 +401,11 @@ def build_summary(df, report_start=None, report_end=None):
             .sum()
             .rename(columns={"Qty Out": "Total Outbound"})
         )
+
+        total_source_rows = pd.DataFrame({
+            "SKU": total_outbound["SKU"],
+            "Official Total Source Row": ""
+        })
 
     # Last actual transaction date by SKU
     last_activity = (
@@ -416,6 +441,7 @@ def build_summary(df, report_start=None, report_end=None):
     for small_df in [
         total_inbound,
         total_outbound,
+        total_source_rows,
         last_activity,
         outbound_30,
         outbound_14,
@@ -520,8 +546,8 @@ st.sidebar.write(
     """
     Ending Balance = official Ending Balance row from file  
     Ending Ctn Balance = official Ctn Balance from Ending Balance row  
-    Total Inbound = official Total row from file  
-    Total Outbound = official Total row from file  
+    Total Inbound = official Total row where Ref # = Total  
+    Total Outbound = official Total row where Ref # = Total  
     Recent usage = dated transaction rows  
     """
 )
@@ -589,7 +615,7 @@ else:
             st.write("The dashboard uses the official `Ending Balance` row for each SKU.")
 
             st.write("**Total Inbound / Total Outbound source:**")
-            st.write("The dashboard uses the official `Total` row for each SKU.")
+            st.write("The dashboard uses the official `Total` row where `Ref # = Total`.")
 
             st.write("**Recent usage source:**")
             st.write("Outbound Last 7/14/30 Days is calculated from actual dated transaction rows.")
@@ -628,38 +654,38 @@ else:
         with k1:
             st.metric("Total SKUs", f"{total_skus:,}")
             if st.button("View All SKUs", use_container_width=True):
-                st.session_state["risk_filter_click"] = [
+                set_risk_filter([
                     "Critical",
                     "Warning",
                     "Watch",
                     "Safe",
                     "No Recent Movement"
-                ]
+                ])
 
         with k2:
             st.metric("Ending Balance", f"{total_ending_balance:,.0f}")
             if st.button("View Safe SKUs", use_container_width=True):
-                st.session_state["risk_filter_click"] = ["Safe"]
+                set_risk_filter(["Safe"])
 
         with k3:
             st.metric("Ending Ctn Balance", f"{total_ending_ctn_balance:,.0f}")
             if st.button("View No Movement", use_container_width=True):
-                st.session_state["risk_filter_click"] = ["No Recent Movement"]
+                set_risk_filter(["No Recent Movement"])
 
         with k4:
             st.metric("Total Outbound", f"{total_outbound:,.0f}")
             if st.button("View Watch SKUs", use_container_width=True):
-                st.session_state["risk_filter_click"] = ["Watch"]
+                set_risk_filter(["Watch"])
 
         with k5:
             st.metric("Critical SKUs", f"{critical_count:,}")
             if st.button("View Critical SKUs", use_container_width=True):
-                st.session_state["risk_filter_click"] = ["Critical"]
+                set_risk_filter(["Critical"])
 
         with k6:
             st.metric("Warning SKUs", f"{warning_count:,}")
             if st.button("View Warning SKUs", use_container_width=True):
-                st.session_state["risk_filter_click"] = ["Warning"]
+                set_risk_filter(["Warning"])
 
         # =========================
         # INTERACTIVE QUICK VIEW
@@ -681,6 +707,7 @@ else:
             "Ending Ctn Balance",
             "Total Inbound",
             "Total Outbound",
+            "Official Total Source Row",
             "Outbound Last 30 Days",
             "Outbound Last 14 Days",
             "Outbound Last 7 Days",
@@ -769,6 +796,7 @@ else:
                         "Description",
                         "Ending Balance",
                         "Ending Ctn Balance",
+                        "Official Total Source Row",
                         "Risk Level"
                     ],
                     title="Top 15 Outbound SKUs"
@@ -820,6 +848,7 @@ else:
                 "Ending Ctn Balance",
                 "Total Inbound",
                 "Total Outbound",
+                "Official Total Source Row",
                 "Outbound Last 30 Days",
                 "Outbound Last 14 Days",
                 "Outbound Last 7 Days",
@@ -1018,6 +1047,14 @@ else:
 
             st.dataframe(
                 official_totals_check,
+                use_container_width=True,
+                hide_index=True
+            )
+
+            st.write("### Raw Parsed Rows for Audit")
+
+            st.dataframe(
+                df,
                 use_container_width=True,
                 hide_index=True
             )
