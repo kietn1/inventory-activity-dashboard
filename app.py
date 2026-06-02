@@ -27,20 +27,53 @@ st.caption(
 # HELPER FUNCTIONS
 # =========================
 
-def extract_number(value):
+def normalize_cell(value):
     """
-    Extract unit quantity from values like:
-    5139 / 198 -> 5139
-    35.0000 / 35 -> 35
-    blank -> 0
+    Clean Excel cell text:
+    - normal spaces
+    - non-breaking spaces
+    - tabs
+    - commas in numbers
+    - repeated spaces
     """
     if pd.isna(value):
-        return 0.0
+        return ""
 
-    text = str(value).strip()
+    text = str(value)
+
+    text = (
+        text
+        .replace("\xa0", " ")
+        .replace("\t", " ")
+        .replace(",", "")
+        .strip()
+    )
+
+    text = re.sub(r"\s+", " ", text)
+
+    return text
+
+
+def extract_number(value):
+    """
+    Extract UNIT quantity from values like:
+
+    "5139 / 198"        -> 5139
+    "   5139 / 198"     -> 5139
+    "15.0000 / 90"      -> 15
+    "   1.0000 / 1"     -> 1
+    blank               -> 0
+
+    Important:
+    We only use the first number before slash.
+    """
+    text = normalize_cell(value)
 
     if text == "":
         return 0.0
+
+    if "/" in text:
+        text = text.split("/")[0].strip()
 
     match = re.search(r"[-+]?\d*\.?\d+", text)
 
@@ -51,9 +84,7 @@ def extract_number(value):
 
 
 def clean_text(value):
-    if pd.isna(value):
-        return ""
-    return str(value).strip()
+    return normalize_cell(value)
 
 
 def safe_row_text(row):
@@ -63,7 +94,7 @@ def safe_row_text(row):
         if pd.isna(value):
             row_values.append("")
         else:
-            row_values.append(str(value).strip().lower())
+            row_values.append(normalize_cell(value).lower())
 
     return " ".join(row_values)
 
@@ -163,12 +194,15 @@ def filter_recent_window(tx, end_date, days):
     Last 30 days = 2026-05-03 to 2026-06-01
     Last 14 days = 2026-05-19 to 2026-06-01
     Last 7 days = 2026-05-26 to 2026-06-01
+
+    Only rows with Qty Out > 0 are included.
     """
     start_date = end_date - timedelta(days=days - 1)
 
     filtered = tx[
         (tx["Activity Date"] >= start_date)
         & (tx["Activity Date"] <= end_date)
+        & (tx["Qty Out"] > 0)
     ].copy()
 
     return filtered, start_date, end_date
@@ -256,6 +290,9 @@ def parse_item_activity_report(uploaded_file):
         else:
             activity_date = parse_activity_date(activity_text)
 
+        raw_qty_in = normalize_cell(qty_in)
+        raw_qty_out = normalize_cell(qty_out)
+
         qty_in_num = extract_number(qty_in)
         qty_out_num = extract_number(qty_out)
         balance_num = extract_number(balance)
@@ -290,6 +327,8 @@ def parse_item_activity_report(uploaded_file):
             "Activity Text": activity_text,
             "Trans #": trans_text,
             "Ref #": ref_text,
+            "Raw Qty In": raw_qty_in,
+            "Raw Qty Out": raw_qty_out,
             "Qty In": qty_in_num,
             "Qty Out": qty_out_num,
             "Balance": balance_num,
@@ -599,7 +638,7 @@ st.sidebar.write(
     Ending Balance = official Ending Balance row  
     Total Inbound = official Total row  
     Total Outbound = official Total row  
-    Recent usage = dated transaction rows  
+    Recent usage = dated transaction rows with Qty Out > 0  
     Forecast = Ending Balance / Avg Daily Usage  
     """
 )
@@ -670,7 +709,7 @@ else:
             st.write("**Balance / Total logic:**")
             st.write("Ending Balance uses official Ending Balance row.")
             st.write("Total Inbound / Outbound uses official Total row.")
-            st.write("Recent outbound uses dated transaction rows only.")
+            st.write("Recent outbound uses dated transaction rows with Qty Out > 0.")
 
         if "risk_filter_click" not in st.session_state:
             st.session_state["risk_filter_click"] = [
@@ -1031,6 +1070,8 @@ else:
                 "Activity Text",
                 "Trans #",
                 "Ref #",
+                "Raw Qty In",
+                "Raw Qty Out",
                 "Qty In",
                 "Qty Out",
                 "Balance",
@@ -1119,6 +1160,8 @@ else:
                 "Activity Text",
                 "Trans #",
                 "Ref #",
+                "Raw Qty In",
+                "Raw Qty Out",
                 "Qty In",
                 "Qty Out",
                 "Balance",
