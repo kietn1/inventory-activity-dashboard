@@ -93,10 +93,6 @@ def extract_report_range(raw_df):
 
     Example:
     Item Activity From: 2025-09-01 to 2026-06-01
-
-    Why this matters:
-    - Report Range should come from the file header
-    - Activity Date Range should come from actual transactions
     """
     report_start = None
     report_end = None
@@ -150,6 +146,8 @@ def parse_item_activity_report(uploaded_file):
     - SKU appears once per item block
     - Transaction rows below SKU have blank SKU
     - Activity Date / Trans# / Ref# / Qty In / Qty Out / Balance
+    - Ending Balance row
+    - Total row
     """
 
     raw = pd.read_excel(uploaded_file, sheet_name=0, header=None)
@@ -251,6 +249,7 @@ def parse_item_activity_report(uploaded_file):
             )
 
             records.append({
+                "Source Row": idx + 1,
                 "SKU": current_sku,
                 "Description": current_description,
                 "Packed": current_packed,
@@ -281,13 +280,16 @@ def build_summary(df, report_start=None, report_end=None):
     """
     Build SKU-level summary.
 
-    Important:
-    - Displayed Report Range uses report_start/report_end from file header
-    - Forecast and recent usage use actual latest activity date
-    - Ending Balance comes from official Ending Balance row in the file
+    Correct logic:
+    - Ending Balance comes from official Ending Balance row
+    - Ending Ctn Balance comes from official Ending Balance row
+    - Total Inbound comes from official Total row
+    - Total Outbound comes from official Total row
+    - Recent usage comes from actual dated transactions
+    - Forecast uses Ending Balance + recent usage
     """
 
-    # Use only true dated transactions for movement calculations
+    # Use only true dated transactions for movement/recent usage calculations
     tx = df[
         (df["Activity Date"].notna())
         & (~df["Movement Type"].isin(["Beginning Balance", "Ending Balance", "Total"]))
@@ -313,10 +315,7 @@ def build_summary(df, report_start=None, report_end=None):
     )
 
     # ==========================================================
-    # CORRECT ENDING BALANCE LOGIC
-    # ==========================================================
-    # The Item Activity Report has official "Ending Balance" rows.
-    # We should use those rows instead of guessing from latest transaction.
+    # OFFICIAL ENDING BALANCE LOGIC
     # ==========================================================
 
     ending_balance_rows = df[df["Movement Type"] == "Ending Balance"].copy()
@@ -331,7 +330,7 @@ def build_summary(df, report_start=None, report_end=None):
             .tail(1)[["SKU", "Description", "Packed", "Balance", "Ctn Balance"]]
         )
     else:
-        # Fallback only if the report does not contain Ending Balance rows
+        # Fallback only if report does not contain Ending Balance rows
         sorted_df = tx.copy()
         sorted_df["Source Order"] = range(len(sorted_df))
 
@@ -346,24 +345,51 @@ def build_summary(df, report_start=None, report_end=None):
         "Ctn Balance": "Ending Ctn Balance"
     })
 
-    total_inbound = (
-        tx.groupby("SKU", as_index=False)["Qty In"]
-        .sum()
-        .rename(columns={"Qty In": "Total Inbound"})
-    )
+    # ==========================================================
+    # OFFICIAL TOTAL INBOUND / OUTBOUND LOGIC
+    # ==========================================================
 
-    total_outbound = (
-        tx.groupby("SKU", as_index=False)["Qty Out"]
-        .sum()
-        .rename(columns={"Qty Out": "Total Outbound"})
-    )
+    total_rows = df[df["Movement Type"] == "Total"].copy()
 
+    if not total_rows.empty:
+        total_rows["Source Order"] = range(len(total_rows))
+
+        official_totals = (
+            total_rows
+            .sort_values(["SKU", "Source Order"])
+            .groupby("SKU", as_index=False)
+            .tail(1)[["SKU", "Qty In", "Qty Out"]]
+            .rename(columns={
+                "Qty In": "Total Inbound",
+                "Qty Out": "Total Outbound"
+            })
+        )
+
+        total_inbound = official_totals[["SKU", "Total Inbound"]]
+        total_outbound = official_totals[["SKU", "Total Outbound"]]
+
+    else:
+        # Fallback only if report does not contain official Total rows
+        total_inbound = (
+            tx.groupby("SKU", as_index=False)["Qty In"]
+            .sum()
+            .rename(columns={"Qty In": "Total Inbound"})
+        )
+
+        total_outbound = (
+            tx.groupby("SKU", as_index=False)["Qty Out"]
+            .sum()
+            .rename(columns={"Qty Out": "Total Outbound"})
+        )
+
+    # Last actual transaction date by SKU
     last_activity = (
         tx.groupby("SKU", as_index=False)["Activity Date"]
         .max()
         .rename(columns={"Activity Date": "Last Activity Date"})
     )
 
+    # Recent outbound usage should still come from dated transaction rows
     outbound_30 = (
         tx[tx["Activity Date"] >= activity_max_date - timedelta(days=30)]
         .groupby("SKU", as_index=False)["Qty Out"]
@@ -489,12 +515,14 @@ st.sidebar.write(
 
 st.sidebar.divider()
 
-st.sidebar.write("### Balance Logic")
+st.sidebar.write("### Balance / Total Logic")
 st.sidebar.write(
     """
     Ending Balance = official Ending Balance row from file  
     Ending Ctn Balance = official Ctn Balance from Ending Balance row  
-    Shortage forecast uses Ending Balance  
+    Total Inbound = official Total row from file  
+    Total Outbound = official Total row from file  
+    Recent usage = dated transaction rows  
     """
 )
 
@@ -556,15 +584,18 @@ else:
                 "Actual activity date range is used for recent usage and forecast calculation."
             )
 
-        with st.expander("Balance Logic Details"):
+        with st.expander("Balance and Total Logic Details"):
             st.write("**Ending Balance source:**")
             st.write("The dashboard uses the official `Ending Balance` row for each SKU.")
 
-            st.write("**Forecast calculation:**")
-            st.write("Shortage risk and Days Remaining are calculated using `Ending Balance`, not transaction balance.")
+            st.write("**Total Inbound / Total Outbound source:**")
+            st.write("The dashboard uses the official `Total` row for each SKU.")
 
-            st.write("**Ctn Balance:**")
-            st.write("Ending Ctn Balance is shown for carton visibility, but shortage forecast uses Ending Balance.")
+            st.write("**Recent usage source:**")
+            st.write("Outbound Last 7/14/30 Days is calculated from actual dated transaction rows.")
+
+            st.write("**Forecast calculation:**")
+            st.write("Shortage risk and Days Remaining are calculated using `Ending Balance` and recent outbound usage.")
 
         # =========================
         # SESSION STATE FOR INTERACTIVE KPI FILTER
@@ -648,6 +679,7 @@ else:
             "Packed",
             "Ending Balance",
             "Ending Ctn Balance",
+            "Total Inbound",
             "Total Outbound",
             "Outbound Last 30 Days",
             "Outbound Last 14 Days",
@@ -916,11 +948,11 @@ else:
                 st.plotly_chart(fig_sku_balance, use_container_width=True)
 
         # =========================
-        # TAB 5: EXCEPTIONS
+        # TAB 5: EXCEPTIONS / AUDIT
         # =========================
 
         with tab5:
-            st.subheader("Exception Report")
+            st.subheader("Exception / Audit Report")
 
             st.write("### Cancelled Transactions")
 
@@ -976,6 +1008,16 @@ else:
 
             st.dataframe(
                 official_ending,
+                use_container_width=True,
+                hide_index=True
+            )
+
+            st.write("### Official Total Rows")
+
+            official_totals_check = df[df["Movement Type"] == "Total"]
+
+            st.dataframe(
+                official_totals_check,
                 use_container_width=True,
                 hide_index=True
             )
