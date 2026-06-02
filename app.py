@@ -211,9 +211,13 @@ def parse_item_activity_report(uploaded_file):
             if activity_text == "":
                 continue
 
-            is_beginning_balance = activity_text.lower() == "beginning balance"
+            activity_text_lower = activity_text.lower()
 
-            if is_beginning_balance:
+            is_beginning_balance = activity_text_lower == "beginning balance"
+            is_ending_balance = activity_text_lower == "ending balance"
+            is_total_row = activity_text_lower == "total"
+
+            if is_beginning_balance or is_ending_balance or is_total_row:
                 activity_date = pd.NaT
             else:
                 activity_date = pd.to_datetime(activity_text, errors="coerce")
@@ -225,6 +229,10 @@ def parse_item_activity_report(uploaded_file):
 
             if is_beginning_balance:
                 movement_type = "Beginning Balance"
+            elif is_ending_balance:
+                movement_type = "Ending Balance"
+            elif is_total_row:
+                movement_type = "Total"
             elif qty_in_num > 0 and qty_out_num == 0:
                 movement_type = "Inbound"
             elif qty_out_num > 0 and qty_in_num == 0:
@@ -255,6 +263,9 @@ def parse_item_activity_report(uploaded_file):
                 "Balance": balance_num,
                 "Ctn Balance": ctn_balance_num,
                 "Movement Type": movement_type,
+                "Is Beginning Balance": is_beginning_balance,
+                "Is Ending Balance": is_ending_balance,
+                "Is Total Row": is_total_row,
                 "Is Cancelled": is_cancelled
             })
 
@@ -273,9 +284,14 @@ def build_summary(df, report_start=None, report_end=None):
     Important:
     - Displayed Report Range uses report_start/report_end from file header
     - Forecast and recent usage use actual latest activity date
+    - Ending Balance comes from official Ending Balance row in the file
     """
 
-    tx = df[df["Activity Date"].notna()].copy()
+    # Use only true dated transactions for movement calculations
+    tx = df[
+        (df["Activity Date"].notna())
+        & (~df["Movement Type"].isin(["Beginning Balance", "Ending Balance", "Total"]))
+    ].copy()
 
     if tx.empty:
         raise ValueError("No valid transaction dates found.")
@@ -296,14 +312,39 @@ def build_summary(df, report_start=None, report_end=None):
         else activity_max_date
     )
 
-    sorted_df = df.copy()
-    sorted_df["Sort Date"] = sorted_df["Activity Date"].fillna(pd.Timestamp.min)
+    # ==========================================================
+    # CORRECT ENDING BALANCE LOGIC
+    # ==========================================================
+    # The Item Activity Report has official "Ending Balance" rows.
+    # We should use those rows instead of guessing from latest transaction.
+    # ==========================================================
 
-    latest_balance = (
-        sorted_df.sort_values(["SKU", "Sort Date"])
-        .groupby("SKU", as_index=False)
-        .tail(1)[["SKU", "Description", "Packed", "Balance", "Ctn Balance"]]
-    )
+    ending_balance_rows = df[df["Movement Type"] == "Ending Balance"].copy()
+
+    if not ending_balance_rows.empty:
+        ending_balance_rows["Source Order"] = range(len(ending_balance_rows))
+
+        latest_balance = (
+            ending_balance_rows
+            .sort_values(["SKU", "Source Order"])
+            .groupby("SKU", as_index=False)
+            .tail(1)[["SKU", "Description", "Packed", "Balance", "Ctn Balance"]]
+        )
+    else:
+        # Fallback only if the report does not contain Ending Balance rows
+        sorted_df = tx.copy()
+        sorted_df["Source Order"] = range(len(sorted_df))
+
+        latest_balance = (
+            sorted_df.sort_values(["SKU", "Activity Date", "Source Order"])
+            .groupby("SKU", as_index=False)
+            .tail(1)[["SKU", "Description", "Packed", "Balance", "Ctn Balance"]]
+        )
+
+    latest_balance = latest_balance.rename(columns={
+        "Balance": "Ending Balance",
+        "Ctn Balance": "Ending Ctn Balance"
+    })
 
     total_inbound = (
         tx.groupby("SKU", as_index=False)["Qty In"]
@@ -370,16 +411,16 @@ def build_summary(df, report_start=None, report_end=None):
 
     summary["Days Remaining"] = np.where(
         summary["Avg Daily Usage 30D"] > 0,
-        summary["Balance"] / summary["Avg Daily Usage 30D"],
+        summary["Ending Balance"] / summary["Avg Daily Usage 30D"],
         np.nan
     )
 
     def risk_level(row):
-        balance = row["Balance"]
+        ending_balance = row["Ending Balance"]
         usage = row["Avg Daily Usage 30D"]
         days = row["Days Remaining"]
 
-        if balance <= 0 and usage > 0:
+        if ending_balance <= 0 and usage > 0:
             return "Critical"
         if usage == 0:
             return "No Recent Movement"
@@ -448,6 +489,17 @@ st.sidebar.write(
 
 st.sidebar.divider()
 
+st.sidebar.write("### Balance Logic")
+st.sidebar.write(
+    """
+    Ending Balance = official Ending Balance row from file  
+    Ending Ctn Balance = official Ctn Balance from Ending Balance row  
+    Shortage forecast uses Ending Balance  
+    """
+)
+
+st.sidebar.divider()
+
 st.sidebar.write("### Risk Level Logic")
 st.sidebar.write(
     """
@@ -504,6 +556,16 @@ else:
                 "Actual activity date range is used for recent usage and forecast calculation."
             )
 
+        with st.expander("Balance Logic Details"):
+            st.write("**Ending Balance source:**")
+            st.write("The dashboard uses the official `Ending Balance` row for each SKU.")
+
+            st.write("**Forecast calculation:**")
+            st.write("Shortage risk and Days Remaining are calculated using `Ending Balance`, not transaction balance.")
+
+            st.write("**Ctn Balance:**")
+            st.write("Ending Ctn Balance is shown for carton visibility, but shortage forecast uses Ending Balance.")
+
         # =========================
         # SESSION STATE FOR INTERACTIVE KPI FILTER
         # =========================
@@ -520,7 +582,8 @@ else:
         # =========================
 
         total_skus = summary["SKU"].nunique()
-        total_balance = summary["Balance"].sum()
+        total_ending_balance = summary["Ending Balance"].sum()
+        total_ending_ctn_balance = summary["Ending Ctn Balance"].sum()
         total_inbound = summary["Total Inbound"].sum()
         total_outbound = summary["Total Outbound"].sum()
         critical_count = (summary["Risk Level"] == "Critical").sum()
@@ -543,12 +606,12 @@ else:
                 ]
 
         with k2:
-            st.metric("Current Balance", f"{total_balance:,.0f}")
+            st.metric("Ending Balance", f"{total_ending_balance:,.0f}")
             if st.button("View Safe SKUs", use_container_width=True):
                 st.session_state["risk_filter_click"] = ["Safe"]
 
         with k3:
-            st.metric("Total Inbound", f"{total_inbound:,.0f}")
+            st.metric("Ending Ctn Balance", f"{total_ending_ctn_balance:,.0f}")
             if st.button("View No Movement", use_container_width=True):
                 st.session_state["risk_filter_click"] = ["No Recent Movement"]
 
@@ -582,7 +645,9 @@ else:
         quick_cols = [
             "SKU",
             "Description",
-            "Balance",
+            "Packed",
+            "Ending Balance",
+            "Ending Ctn Balance",
             "Total Outbound",
             "Outbound Last 30 Days",
             "Outbound Last 14 Days",
@@ -670,7 +735,8 @@ else:
                     y="Total Outbound",
                     hover_data=[
                         "Description",
-                        "Balance",
+                        "Ending Balance",
+                        "Ending Ctn Balance",
                         "Risk Level"
                     ],
                     title="Top 15 Outbound SKUs"
@@ -717,7 +783,9 @@ else:
             cols_to_show = [
                 "SKU",
                 "Description",
-                "Balance",
+                "Packed",
+                "Ending Balance",
+                "Ending Ctn Balance",
                 "Total Inbound",
                 "Total Outbound",
                 "Outbound Last 30 Days",
@@ -842,7 +910,7 @@ else:
                         "Qty In",
                         "Qty Out"
                     ],
-                    title=f"Balance Trend - {selected_sku}"
+                    title=f"Transaction Balance Trend - {selected_sku}"
                 )
 
                 st.plotly_chart(fig_sku_balance, use_container_width=True)
@@ -864,10 +932,10 @@ else:
                 hide_index=True
             )
 
-            st.write("### Zero Balance with Recent Outbound")
+            st.write("### Zero Ending Balance with Recent Outbound")
 
             zero_recent = summary[
-                (summary["Balance"] <= 0)
+                (summary["Ending Balance"] <= 0)
                 & (summary["Outbound Last 30 Days"] > 0)
             ]
 
@@ -877,7 +945,7 @@ else:
                 hide_index=True
             )
 
-            st.write("### Fast Moving but Low Balance")
+            st.write("### Fast Moving but Low Ending Balance")
 
             fast_low = summary[
                 (summary["Outbound Last 30 Days"] > 0)
@@ -898,6 +966,16 @@ else:
 
             st.dataframe(
                 no_movement,
+                use_container_width=True,
+                hide_index=True
+            )
+
+            st.write("### Official Ending Balance Rows")
+
+            official_ending = df[df["Movement Type"] == "Ending Balance"]
+
+            st.dataframe(
+                official_ending,
                 use_container_width=True,
                 hide_index=True
             )
