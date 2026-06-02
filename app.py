@@ -60,8 +60,7 @@ def clean_text(value):
 def safe_row_text(row):
     """
     Convert every cell in a row to safe lowercase text.
-    This prevents error:
-    TypeError: sequence item expected str instance, float found
+    This prevents errors when Excel row contains numbers, blanks, or NaN values.
     """
     row_values = []
 
@@ -76,7 +75,7 @@ def safe_row_text(row):
 
 def find_header_row(raw_df):
     """
-    Find the header row automatically.
+    Find the transaction header row automatically.
     We look for row containing both SKU and Activity Date.
     """
     for i in range(min(80, len(raw_df))):
@@ -86,6 +85,61 @@ def find_header_row(raw_df):
             return i
 
     return None
+
+
+def extract_report_range(raw_df):
+    """
+    Extract report date range from the top header area.
+
+    Example:
+    Item Activity From: 2025-09-01 to 2026-06-01
+
+    Why this matters:
+    - Report Range should come from the file header
+    - Activity Date Range should come from actual transactions
+    """
+    report_start = None
+    report_end = None
+
+    for i in range(min(30, len(raw_df))):
+        row = raw_df.iloc[i]
+        row_text = safe_row_text(row)
+
+        if "item activity from" in row_text:
+            dates_found = []
+
+            # First try to parse individual cells
+            for value in row.tolist():
+                if pd.isna(value):
+                    continue
+
+                parsed_date = pd.to_datetime(value, errors="coerce")
+
+                if pd.notna(parsed_date):
+                    dates_found.append(parsed_date)
+
+            # If individual cells do not work, try regex on full row text
+            if len(dates_found) < 2:
+                date_patterns = re.findall(
+                    r"\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|\d{4}[/-]\d{1,2}[/-]\d{1,2}",
+                    row_text
+                )
+
+                for date_text in date_patterns:
+                    parsed_date = pd.to_datetime(date_text, errors="coerce")
+
+                    if pd.notna(parsed_date):
+                        dates_found.append(parsed_date)
+
+            if len(dates_found) >= 1:
+                report_start = dates_found[0]
+
+            if len(dates_found) >= 2:
+                report_end = dates_found[1]
+
+            break
+
+    return report_start, report_end
 
 
 def parse_item_activity_report(uploaded_file):
@@ -99,6 +153,8 @@ def parse_item_activity_report(uploaded_file):
     """
 
     raw = pd.read_excel(uploaded_file, sheet_name=0, header=None)
+
+    report_start, report_end = extract_report_range(raw)
 
     header_row = find_header_row(raw)
 
@@ -207,12 +263,16 @@ def parse_item_activity_report(uploaded_file):
     if df.empty:
         raise ValueError("No activity records found.")
 
-    return df
+    return df, report_start, report_end
 
 
-def build_summary(df):
+def build_summary(df, report_start=None, report_end=None):
     """
     Build SKU-level summary.
+
+    Important:
+    - Displayed Report Range uses report_start/report_end from file header
+    - Forecast and recent usage use actual latest activity date
     """
 
     tx = df[df["Activity Date"].notna()].copy()
@@ -220,8 +280,21 @@ def build_summary(df):
     if tx.empty:
         raise ValueError("No valid transaction dates found.")
 
-    min_date = tx["Activity Date"].min()
-    max_date = tx["Activity Date"].max()
+    activity_min_date = tx["Activity Date"].min()
+    activity_max_date = tx["Activity Date"].max()
+
+    # Display range comes from file header if available
+    report_min_date = (
+        report_start
+        if report_start is not None and pd.notna(report_start)
+        else activity_min_date
+    )
+
+    report_max_date = (
+        report_end
+        if report_end is not None and pd.notna(report_end)
+        else activity_max_date
+    )
 
     sorted_df = df.copy()
     sorted_df["Sort Date"] = sorted_df["Activity Date"].fillna(pd.Timestamp.min)
@@ -251,21 +324,21 @@ def build_summary(df):
     )
 
     outbound_30 = (
-        tx[tx["Activity Date"] >= max_date - timedelta(days=30)]
+        tx[tx["Activity Date"] >= activity_max_date - timedelta(days=30)]
         .groupby("SKU", as_index=False)["Qty Out"]
         .sum()
         .rename(columns={"Qty Out": "Outbound Last 30 Days"})
     )
 
     outbound_14 = (
-        tx[tx["Activity Date"] >= max_date - timedelta(days=14)]
+        tx[tx["Activity Date"] >= activity_max_date - timedelta(days=14)]
         .groupby("SKU", as_index=False)["Qty Out"]
         .sum()
         .rename(columns={"Qty Out": "Outbound Last 14 Days"})
     )
 
     outbound_7 = (
-        tx[tx["Activity Date"] >= max_date - timedelta(days=7)]
+        tx[tx["Activity Date"] >= activity_max_date - timedelta(days=7)]
         .groupby("SKU", as_index=False)["Qty Out"]
         .sum()
         .rename(columns={"Qty Out": "Outbound Last 7 Days"})
@@ -325,14 +398,18 @@ def build_summary(df):
             return ""
         if row["Days Remaining"] < 0:
             return ""
-        return (max_date + timedelta(days=float(row["Days Remaining"]))).date()
+
+        # Forecast should start from latest actual activity date
+        return (activity_max_date + timedelta(days=float(row["Days Remaining"]))).date()
 
     summary["Forecast Stockout Date"] = summary.apply(stockout_date, axis=1)
 
-    summary["Report Start Date"] = min_date.date()
-    summary["Report End Date"] = max_date.date()
+    summary["Report Start Date"] = report_min_date.date()
+    summary["Report End Date"] = report_max_date.date()
+    summary["Activity Start Date"] = activity_min_date.date()
+    summary["Activity End Date"] = activity_max_date.date()
 
-    return summary, tx, min_date, max_date
+    return summary, tx, report_min_date, report_max_date, activity_min_date, activity_max_date
 
 
 def apply_risk_sort(df):
@@ -399,12 +476,33 @@ if uploaded_file is None:
 
 else:
     try:
-        df = parse_item_activity_report(uploaded_file)
-        summary, tx, min_date, max_date = build_summary(df)
+        df, report_start, report_end = parse_item_activity_report(uploaded_file)
+
+        (
+            summary,
+            tx,
+            report_min_date,
+            report_max_date,
+            activity_min_date,
+            activity_max_date
+        ) = build_summary(df, report_start, report_end)
 
         st.success(
-            f"File processed successfully. Report range: {min_date.date()} to {max_date.date()}"
+            f"File processed successfully. "
+            f"Report range: {report_min_date.date()} to {report_max_date.date()}"
         )
+
+        with st.expander("Date Range Details"):
+            st.write("**Report range from file header:**")
+            st.write(f"{report_min_date.date()} to {report_max_date.date()}")
+
+            st.write("**Actual activity date range found in transactions:**")
+            st.write(f"{activity_min_date.date()} to {activity_max_date.date()}")
+
+            st.caption(
+                "Report range is used for display. "
+                "Actual activity date range is used for recent usage and forecast calculation."
+            )
 
         # =========================
         # SESSION STATE FOR INTERACTIVE KPI FILTER
@@ -629,7 +727,11 @@ else:
                 "Days Remaining",
                 "Forecast Stockout Date",
                 "Risk Level",
-                "Last Activity Date"
+                "Last Activity Date",
+                "Report Start Date",
+                "Report End Date",
+                "Activity Start Date",
+                "Activity End Date"
             ]
 
             st.dataframe(
