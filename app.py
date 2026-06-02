@@ -335,6 +335,24 @@ def build_summary(df):
     return summary, tx, min_date, max_date
 
 
+def apply_risk_sort(df):
+    risk_order = {
+        "Critical": 1,
+        "Warning": 2,
+        "Watch": 3,
+        "Safe": 4,
+        "No Recent Movement": 5
+    }
+
+    df = df.copy()
+    df["Risk Sort"] = df["Risk Level"].map(risk_order)
+
+    return df.sort_values(
+        ["Risk Sort", "Days Remaining"],
+        ascending=[True, True]
+    )
+
+
 # =========================
 # SIDEBAR
 # =========================
@@ -344,9 +362,10 @@ st.sidebar.write(
     """
     1. Upload Item Activity Report Excel  
     2. Review KPI cards  
-    3. Check Shortage Forecast tab  
-    4. Search SKU if needed  
-    5. Download processed CSV  
+    3. Click risk buttons to view SKUs  
+    4. Check Shortage Forecast tab  
+    5. Search SKU if needed  
+    6. Download processed CSV  
     """
 )
 
@@ -388,6 +407,17 @@ else:
         )
 
         # =========================
+        # SESSION STATE FOR INTERACTIVE KPI FILTER
+        # =========================
+
+        if "risk_filter_click" not in st.session_state:
+            st.session_state["risk_filter_click"] = [
+                "Critical",
+                "Warning",
+                "Watch"
+            ]
+
+        # =========================
         # KPI CARDS
         # =========================
 
@@ -397,15 +427,103 @@ else:
         total_outbound = summary["Total Outbound"].sum()
         critical_count = (summary["Risk Level"] == "Critical").sum()
         warning_count = (summary["Risk Level"] == "Warning").sum()
+        watch_count = (summary["Risk Level"] == "Watch").sum()
+        safe_count = (summary["Risk Level"] == "Safe").sum()
+        no_movement_count = (summary["Risk Level"] == "No Recent Movement").sum()
 
         k1, k2, k3, k4, k5, k6 = st.columns(6)
 
-        k1.metric("Total SKUs", f"{total_skus:,}")
-        k2.metric("Current Balance", f"{total_balance:,.0f}")
-        k3.metric("Total Inbound", f"{total_inbound:,.0f}")
-        k4.metric("Total Outbound", f"{total_outbound:,.0f}")
-        k5.metric("Critical SKUs", f"{critical_count:,}")
-        k6.metric("Warning SKUs", f"{warning_count:,}")
+        with k1:
+            st.metric("Total SKUs", f"{total_skus:,}")
+            if st.button("View All SKUs", use_container_width=True):
+                st.session_state["risk_filter_click"] = [
+                    "Critical",
+                    "Warning",
+                    "Watch",
+                    "Safe",
+                    "No Recent Movement"
+                ]
+
+        with k2:
+            st.metric("Current Balance", f"{total_balance:,.0f}")
+            if st.button("View Safe SKUs", use_container_width=True):
+                st.session_state["risk_filter_click"] = ["Safe"]
+
+        with k3:
+            st.metric("Total Inbound", f"{total_inbound:,.0f}")
+            if st.button("View No Movement", use_container_width=True):
+                st.session_state["risk_filter_click"] = ["No Recent Movement"]
+
+        with k4:
+            st.metric("Total Outbound", f"{total_outbound:,.0f}")
+            if st.button("View Watch SKUs", use_container_width=True):
+                st.session_state["risk_filter_click"] = ["Watch"]
+
+        with k5:
+            st.metric("Critical SKUs", f"{critical_count:,}")
+            if st.button("View Critical SKUs", use_container_width=True):
+                st.session_state["risk_filter_click"] = ["Critical"]
+
+        with k6:
+            st.metric("Warning SKUs", f"{warning_count:,}")
+            if st.button("View Warning SKUs", use_container_width=True):
+                st.session_state["risk_filter_click"] = ["Warning"]
+
+        # =========================
+        # INTERACTIVE QUICK VIEW
+        # =========================
+
+        st.divider()
+
+        quick_view = summary[
+            summary["Risk Level"].isin(st.session_state["risk_filter_click"])
+        ].copy()
+
+        quick_view = apply_risk_sort(quick_view)
+
+        quick_cols = [
+            "SKU",
+            "Description",
+            "Balance",
+            "Total Outbound",
+            "Outbound Last 30 Days",
+            "Outbound Last 14 Days",
+            "Outbound Last 7 Days",
+            "Avg Daily Usage 30D",
+            "Days Remaining",
+            "Forecast Stockout Date",
+            "Risk Level",
+            "Last Activity Date"
+        ]
+
+        selected_filter_label = ", ".join(st.session_state["risk_filter_click"])
+
+        st.subheader(f"Quick SKU View: {selected_filter_label}")
+
+        q1, q2, q3, q4, q5 = st.columns(5)
+
+        q1.metric("Critical", f"{critical_count:,}")
+        q2.metric("Warning", f"{warning_count:,}")
+        q3.metric("Watch", f"{watch_count:,}")
+        q4.metric("Safe", f"{safe_count:,}")
+        q5.metric("No Movement", f"{no_movement_count:,}")
+
+        st.dataframe(
+            quick_view[quick_cols],
+            use_container_width=True,
+            hide_index=True
+        )
+
+        st.download_button(
+            "Download Current Quick View CSV",
+            quick_view[quick_cols].to_csv(index=False).encode("utf-8"),
+            file_name="quick_sku_view.csv",
+            mime="text/csv"
+        )
+
+        # =========================
+        # TABS
+        # =========================
 
         tab1, tab2, tab3, tab4, tab5 = st.tabs([
             "Overview",
@@ -488,27 +606,15 @@ else:
             selected_risks = st.multiselect(
                 "Risk Level Filter",
                 risk_options,
-                default=["Critical", "Warning", "Watch"]
+                default=st.session_state["risk_filter_click"],
+                key="shortage_risk_filter"
             )
 
             shortage_view = summary[
                 summary["Risk Level"].isin(selected_risks)
             ].copy()
 
-            risk_order = {
-                "Critical": 1,
-                "Warning": 2,
-                "Watch": 3,
-                "Safe": 4,
-                "No Recent Movement": 5
-            }
-
-            shortage_view["Risk Sort"] = shortage_view["Risk Level"].map(risk_order)
-
-            shortage_view = shortage_view.sort_values(
-                ["Risk Sort", "Days Remaining"],
-                ascending=[True, True]
-            )
+            shortage_view = apply_risk_sort(shortage_view)
 
             cols_to_show = [
                 "SKU",
