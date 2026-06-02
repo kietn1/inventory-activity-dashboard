@@ -29,11 +29,14 @@ st.caption(
 
 def extract_number(value):
     """
-    Convert values like:
+    Extract first number from values like:
     35.0000 / 35
     1.0000 / 1
     blank
-    into clean number.
+
+    This returns the unit quantity.
+    Example:
+    5139 / 198 -> 5139
     """
     if pd.isna(value):
         return 0.0
@@ -51,6 +54,36 @@ def extract_number(value):
     return 0.0
 
 
+def extract_ctn_number(value):
+    """
+    Extract carton/CTN number from values like:
+    5139 / 198 -> 198
+
+    If there is no slash value, returns 0.
+    """
+    if pd.isna(value):
+        return 0.0
+
+    text = str(value).strip()
+
+    if "/" not in text:
+        return 0.0
+
+    parts = text.split("/")
+
+    if len(parts) < 2:
+        return 0.0
+
+    ctn_text = parts[1].strip()
+
+    match = re.search(r"[-+]?\d*\.?\d+", ctn_text)
+
+    if match:
+        return float(match.group())
+
+    return 0.0
+
+
 def clean_text(value):
     if pd.isna(value):
         return ""
@@ -60,7 +93,6 @@ def clean_text(value):
 def safe_row_text(row):
     """
     Convert every cell in a row to safe lowercase text.
-    This prevents errors when Excel row contains numbers, blanks, or NaN values.
     """
     row_values = []
 
@@ -73,10 +105,34 @@ def safe_row_text(row):
     return " ".join(row_values)
 
 
+def parse_activity_date(activity_text):
+    """
+    Parse activity date safely.
+
+    Handles:
+    6/1/2026
+    6/1/2026 (Not Shipped)
+    2026-06-01
+    """
+    activity_text = clean_text(activity_text)
+
+    if activity_text == "":
+        return pd.NaT
+
+    date_match = re.search(
+        r"\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|\d{4}[/-]\d{1,2}[/-]\d{1,2}",
+        activity_text
+    )
+
+    if date_match:
+        return pd.to_datetime(date_match.group(0), errors="coerce")
+
+    return pd.to_datetime(activity_text, errors="coerce")
+
+
 def find_header_row(raw_df):
     """
     Find the transaction header row automatically.
-    We look for row containing both SKU and Activity Date.
     """
     for i in range(min(80, len(raw_df))):
         row_text = safe_row_text(raw_df.iloc[i])
@@ -104,7 +160,6 @@ def extract_report_range(raw_df):
         if "item activity from" in row_text:
             dates_found = []
 
-            # First try to parse individual cells
             for value in row.tolist():
                 if pd.isna(value):
                     continue
@@ -114,7 +169,6 @@ def extract_report_range(raw_df):
                 if pd.notna(parsed_date):
                     dates_found.append(parsed_date)
 
-            # If individual cells do not work, try regex on full row text
             if len(dates_found) < 2:
                 date_patterns = re.findall(
                     r"\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|\d{4}[/-]\d{1,2}[/-]\d{1,2}",
@@ -144,6 +198,26 @@ def set_risk_filter(values):
     """
     st.session_state["risk_filter_click"] = values
     st.session_state["shortage_risk_filter"] = values
+
+
+def filter_recent_window(tx, end_date, days):
+    """
+    True calendar day window.
+
+    Last 30 days:
+    start = end_date - 29 days
+    because end date is included.
+
+    Example:
+    End date = 2026-06-01
+    Last 30 days = 2026-05-03 to 2026-06-01
+    """
+    start_date = end_date - timedelta(days=days - 1)
+
+    return tx[
+        (tx["Activity Date"] >= start_date)
+        & (tx["Activity Date"] <= end_date)
+    ].copy(), start_date, end_date
 
 
 def parse_item_activity_report(uploaded_file):
@@ -221,8 +295,7 @@ def parse_item_activity_report(uploaded_file):
         is_beginning_balance = activity_text_lower == "beginning balance"
         is_ending_balance = activity_text_lower == "ending balance"
 
-        # IMPORTANT:
-        # In this report, official Total row is in Ref # column, not Activity Date column.
+        # In this report, official Total row is in Ref # column.
         is_total_row = ref_text_lower == "total"
 
         should_keep_row = (
@@ -239,10 +312,14 @@ def parse_item_activity_report(uploaded_file):
         if is_beginning_balance or is_ending_balance or is_total_row:
             activity_date = pd.NaT
         else:
-            activity_date = pd.to_datetime(activity_text, errors="coerce")
+            activity_date = parse_activity_date(activity_text)
 
         qty_in_num = extract_number(qty_in)
         qty_out_num = extract_number(qty_out)
+
+        qty_in_ctn = extract_ctn_number(qty_in)
+        qty_out_ctn = extract_ctn_number(qty_out)
+
         balance_num = extract_number(balance)
         ctn_balance_num = extract_number(ctn_balance)
 
@@ -266,6 +343,8 @@ def parse_item_activity_report(uploaded_file):
             or "cancel" in trans_text.lower()
         )
 
+        is_not_shipped = "not shipped" in activity_text.lower()
+
         records.append({
             "Source Row": idx + 1,
             "SKU": current_sku,
@@ -276,14 +355,17 @@ def parse_item_activity_report(uploaded_file):
             "Trans #": trans_text,
             "Ref #": ref_text,
             "Qty In": qty_in_num,
+            "Qty In CTN": qty_in_ctn,
             "Qty Out": qty_out_num,
+            "Qty Out CTN": qty_out_ctn,
             "Balance": balance_num,
             "Ctn Balance": ctn_balance_num,
             "Movement Type": movement_type,
             "Is Beginning Balance": is_beginning_balance,
             "Is Ending Balance": is_ending_balance,
             "Is Total Row": is_total_row,
-            "Is Cancelled": is_cancelled
+            "Is Cancelled": is_cancelled,
+            "Is Not Shipped": is_not_shipped
         })
 
     df = pd.DataFrame(records)
@@ -300,14 +382,11 @@ def build_summary(df, report_start=None, report_end=None):
 
     Correct logic:
     - Ending Balance comes from official Ending Balance row
-    - Ending Ctn Balance comes from official Ending Balance row
-    - Total Inbound comes from official Total row, where Ref # = Total
-    - Total Outbound comes from official Total row, where Ref # = Total
-    - Recent usage comes from actual dated transactions
+    - Total Inbound / Outbound comes from official Total row where Ref # = Total
+    - Recent usage comes from actual dated transaction rows
     - Forecast uses Ending Balance + recent usage
     """
 
-    # Use only true dated transactions for movement/recent usage calculations
     tx = df[
         (df["Activity Date"].notna())
         & (~df["Movement Type"].isin(["Beginning Balance", "Ending Balance", "Total"]))
@@ -319,7 +398,6 @@ def build_summary(df, report_start=None, report_end=None):
     activity_min_date = tx["Activity Date"].min()
     activity_max_date = tx["Activity Date"].max()
 
-    # Display range comes from file header if available
     report_min_date = (
         report_start
         if report_start is not None and pd.notna(report_start)
@@ -332,9 +410,12 @@ def build_summary(df, report_start=None, report_end=None):
         else activity_max_date
     )
 
-    # ==========================================================
-    # OFFICIAL ENDING BALANCE LOGIC
-    # ==========================================================
+    # Use report end date as the recent outbound reference date.
+    recent_end_date = report_max_date
+
+    # =========================
+    # OFFICIAL ENDING BALANCE
+    # =========================
 
     ending_balance_rows = df[df["Movement Type"] == "Ending Balance"].copy()
 
@@ -348,7 +429,6 @@ def build_summary(df, report_start=None, report_end=None):
             .tail(1)[["SKU", "Description", "Packed", "Balance", "Ctn Balance"]]
         )
     else:
-        # Fallback only if report does not contain Ending Balance rows
         sorted_df = tx.copy()
         sorted_df["Source Order"] = range(len(sorted_df))
 
@@ -363,9 +443,9 @@ def build_summary(df, report_start=None, report_end=None):
         "Ctn Balance": "Ending Ctn Balance"
     })
 
-    # ==========================================================
-    # OFFICIAL TOTAL INBOUND / OUTBOUND LOGIC
-    # ==========================================================
+    # =========================
+    # OFFICIAL TOTAL ROW
+    # =========================
 
     total_rows = df[df["Movement Type"] == "Total"].copy()
 
@@ -376,30 +456,44 @@ def build_summary(df, report_start=None, report_end=None):
             total_rows
             .sort_values(["SKU", "Source Order"])
             .groupby("SKU", as_index=False)
-            .tail(1)[["SKU", "Qty In", "Qty Out", "Source Row"]]
+            .tail(1)[[
+                "SKU",
+                "Qty In",
+                "Qty In CTN",
+                "Qty Out",
+                "Qty Out CTN",
+                "Source Row"
+            ]]
             .rename(columns={
                 "Qty In": "Total Inbound",
+                "Qty In CTN": "Total Inbound CTN",
                 "Qty Out": "Total Outbound",
+                "Qty Out CTN": "Total Outbound CTN",
                 "Source Row": "Official Total Source Row"
             })
         )
 
-        total_inbound = official_totals[["SKU", "Total Inbound"]]
-        total_outbound = official_totals[["SKU", "Total Outbound"]]
+        total_inbound = official_totals[["SKU", "Total Inbound", "Total Inbound CTN"]]
+        total_outbound = official_totals[["SKU", "Total Outbound", "Total Outbound CTN"]]
         total_source_rows = official_totals[["SKU", "Official Total Source Row"]]
 
     else:
-        # Fallback only if report does not contain official Total rows
         total_inbound = (
-            tx.groupby("SKU", as_index=False)["Qty In"]
+            tx.groupby("SKU", as_index=False)[["Qty In", "Qty In CTN"]]
             .sum()
-            .rename(columns={"Qty In": "Total Inbound"})
+            .rename(columns={
+                "Qty In": "Total Inbound",
+                "Qty In CTN": "Total Inbound CTN"
+            })
         )
 
         total_outbound = (
-            tx.groupby("SKU", as_index=False)["Qty Out"]
+            tx.groupby("SKU", as_index=False)[["Qty Out", "Qty Out CTN"]]
             .sum()
-            .rename(columns={"Qty Out": "Total Outbound"})
+            .rename(columns={
+                "Qty Out": "Total Outbound",
+                "Qty Out CTN": "Total Outbound CTN"
+            })
         )
 
         total_source_rows = pd.DataFrame({
@@ -407,34 +501,68 @@ def build_summary(df, report_start=None, report_end=None):
             "Official Total Source Row": ""
         })
 
-    # Last actual transaction date by SKU
+    # =========================
+    # LAST ACTIVITY DATE
+    # =========================
+
     last_activity = (
         tx.groupby("SKU", as_index=False)["Activity Date"]
         .max()
         .rename(columns={"Activity Date": "Last Activity Date"})
     )
 
-    # Recent outbound usage should still come from dated transaction rows
+    # =========================
+    # RECENT OUTBOUND WINDOWS
+    # =========================
+
+    tx_30, outbound_30_start, outbound_30_end = filter_recent_window(
+        tx,
+        recent_end_date,
+        30
+    )
+
+    tx_14, outbound_14_start, outbound_14_end = filter_recent_window(
+        tx,
+        recent_end_date,
+        14
+    )
+
+    tx_7, outbound_7_start, outbound_7_end = filter_recent_window(
+        tx,
+        recent_end_date,
+        7
+    )
+
     outbound_30 = (
-        tx[tx["Activity Date"] >= activity_max_date - timedelta(days=30)]
-        .groupby("SKU", as_index=False)["Qty Out"]
+        tx_30.groupby("SKU", as_index=False)[["Qty Out", "Qty Out CTN"]]
         .sum()
-        .rename(columns={"Qty Out": "Outbound Last 30 Days"})
+        .rename(columns={
+            "Qty Out": "Outbound Last 30 Days",
+            "Qty Out CTN": "Outbound Last 30 Days CTN"
+        })
     )
 
     outbound_14 = (
-        tx[tx["Activity Date"] >= activity_max_date - timedelta(days=14)]
-        .groupby("SKU", as_index=False)["Qty Out"]
+        tx_14.groupby("SKU", as_index=False)[["Qty Out", "Qty Out CTN"]]
         .sum()
-        .rename(columns={"Qty Out": "Outbound Last 14 Days"})
+        .rename(columns={
+            "Qty Out": "Outbound Last 14 Days",
+            "Qty Out CTN": "Outbound Last 14 Days CTN"
+        })
     )
 
     outbound_7 = (
-        tx[tx["Activity Date"] >= activity_max_date - timedelta(days=7)]
-        .groupby("SKU", as_index=False)["Qty Out"]
+        tx_7.groupby("SKU", as_index=False)[["Qty Out", "Qty Out CTN"]]
         .sum()
-        .rename(columns={"Qty Out": "Outbound Last 7 Days"})
+        .rename(columns={
+            "Qty Out": "Outbound Last 7 Days",
+            "Qty Out CTN": "Outbound Last 7 Days CTN"
+        })
     )
+
+    # =========================
+    # MERGE SUMMARY
+    # =========================
 
     summary = latest_balance.copy()
 
@@ -451,10 +579,15 @@ def build_summary(df, report_start=None, report_end=None):
 
     fill_cols = [
         "Total Inbound",
+        "Total Inbound CTN",
         "Total Outbound",
+        "Total Outbound CTN",
         "Outbound Last 30 Days",
+        "Outbound Last 30 Days CTN",
         "Outbound Last 14 Days",
-        "Outbound Last 7 Days"
+        "Outbound Last 14 Days CTN",
+        "Outbound Last 7 Days",
+        "Outbound Last 7 Days CTN"
     ]
 
     summary[fill_cols] = summary[fill_cols].fillna(0)
@@ -492,8 +625,7 @@ def build_summary(df, report_start=None, report_end=None):
         if row["Days Remaining"] < 0:
             return ""
 
-        # Forecast should start from latest actual activity date
-        return (activity_max_date + timedelta(days=float(row["Days Remaining"]))).date()
+        return (recent_end_date + timedelta(days=float(row["Days Remaining"]))).date()
 
     summary["Forecast Stockout Date"] = summary.apply(stockout_date, axis=1)
 
@@ -502,7 +634,40 @@ def build_summary(df, report_start=None, report_end=None):
     summary["Activity Start Date"] = activity_min_date.date()
     summary["Activity End Date"] = activity_max_date.date()
 
-    return summary, tx, report_min_date, report_max_date, activity_min_date, activity_max_date
+    summary["Outbound 30D Start"] = outbound_30_start.date()
+    summary["Outbound 30D End"] = outbound_30_end.date()
+    summary["Outbound 14D Start"] = outbound_14_start.date()
+    summary["Outbound 14D End"] = outbound_14_end.date()
+    summary["Outbound 7D Start"] = outbound_7_start.date()
+    summary["Outbound 7D End"] = outbound_7_end.date()
+
+    recent_windows = {
+        "30D": {
+            "start": outbound_30_start,
+            "end": outbound_30_end,
+            "rows": tx_30
+        },
+        "14D": {
+            "start": outbound_14_start,
+            "end": outbound_14_end,
+            "rows": tx_14
+        },
+        "7D": {
+            "start": outbound_7_start,
+            "end": outbound_7_end,
+            "rows": tx_7
+        }
+    }
+
+    return (
+        summary,
+        tx,
+        recent_windows,
+        report_min_date,
+        report_max_date,
+        activity_min_date,
+        activity_max_date
+    )
 
 
 def apply_risk_sort(df):
@@ -544,11 +709,23 @@ st.sidebar.divider()
 st.sidebar.write("### Balance / Total Logic")
 st.sidebar.write(
     """
-    Ending Balance = official Ending Balance row from file  
-    Ending Ctn Balance = official Ctn Balance from Ending Balance row  
+    Ending Balance = official Ending Balance row  
+    Ending Ctn Balance = official Ending Balance row  
     Total Inbound = official Total row where Ref # = Total  
     Total Outbound = official Total row where Ref # = Total  
     Recent usage = dated transaction rows  
+    """
+)
+
+st.sidebar.divider()
+
+st.sidebar.write("### Recent Outbound Logic")
+st.sidebar.write(
+    """
+    Last 30 days = Report End Date - 29 days through Report End Date  
+    Last 14 days = Report End Date - 13 days through Report End Date  
+    Last 7 days = Report End Date - 6 days through Report End Date  
+    Rows like 6/1/2026 (Not Shipped) are included if Qty Out exists.  
     """
 )
 
@@ -587,6 +764,7 @@ else:
         (
             summary,
             tx,
+            recent_windows,
             report_min_date,
             report_max_date,
             activity_min_date,
@@ -605,12 +783,22 @@ else:
             st.write("**Actual activity date range found in transactions:**")
             st.write(f"{activity_min_date.date()} to {activity_max_date.date()}")
 
-            st.caption(
-                "Report range is used for display. "
-                "Actual activity date range is used for recent usage and forecast calculation."
+            st.write("**Recent outbound windows used:**")
+            st.write(
+                f"30D: {recent_windows['30D']['start'].date()} to {recent_windows['30D']['end'].date()}"
+            )
+            st.write(
+                f"14D: {recent_windows['14D']['start'].date()} to {recent_windows['14D']['end'].date()}"
+            )
+            st.write(
+                f"7D: {recent_windows['7D']['start'].date()} to {recent_windows['7D']['end'].date()}"
             )
 
-        with st.expander("Balance and Total Logic Details"):
+            st.caption(
+                "Recent outbound uses report end date and true calendar day windows."
+            )
+
+        with st.expander("Balance, Total, and Recent Outbound Logic Details"):
             st.write("**Ending Balance source:**")
             st.write("The dashboard uses the official `Ending Balance` row for each SKU.")
 
@@ -618,13 +806,16 @@ else:
             st.write("The dashboard uses the official `Total` row where `Ref # = Total`.")
 
             st.write("**Recent usage source:**")
-            st.write("Outbound Last 7/14/30 Days is calculated from actual dated transaction rows.")
+            st.write(
+                "Outbound Last 7/14/30 Days is calculated from actual dated transaction rows, "
+                "including rows like `6/1/2026 (Not Shipped)` if they have Qty Out."
+            )
 
             st.write("**Forecast calculation:**")
             st.write("Shortage risk and Days Remaining are calculated using `Ending Balance` and recent outbound usage.")
 
         # =========================
-        # SESSION STATE FOR INTERACTIVE KPI FILTER
+        # SESSION STATE
         # =========================
 
         if "risk_filter_click" not in st.session_state:
@@ -642,7 +833,12 @@ else:
         total_ending_balance = summary["Ending Balance"].sum()
         total_ending_ctn_balance = summary["Ending Ctn Balance"].sum()
         total_inbound = summary["Total Inbound"].sum()
+        total_inbound_ctn = summary["Total Inbound CTN"].sum()
         total_outbound = summary["Total Outbound"].sum()
+        total_outbound_ctn = summary["Total Outbound CTN"].sum()
+        total_outbound_30 = summary["Outbound Last 30 Days"].sum()
+        total_outbound_14 = summary["Outbound Last 14 Days"].sum()
+        total_outbound_7 = summary["Outbound Last 7 Days"].sum()
         critical_count = (summary["Risk Level"] == "Critical").sum()
         warning_count = (summary["Risk Level"] == "Warning").sum()
         watch_count = (summary["Risk Level"] == "Watch").sum()
@@ -668,12 +864,12 @@ else:
                 set_risk_filter(["Safe"])
 
         with k3:
-            st.metric("Ending Ctn Balance", f"{total_ending_ctn_balance:,.0f}")
+            st.metric("Total Inbound", f"{total_inbound:,.0f} / {total_inbound_ctn:,.0f} CTN")
             if st.button("View No Movement", use_container_width=True):
                 set_risk_filter(["No Recent Movement"])
 
         with k4:
-            st.metric("Total Outbound", f"{total_outbound:,.0f}")
+            st.metric("Total Outbound", f"{total_outbound:,.0f} / {total_outbound_ctn:,.0f} CTN")
             if st.button("View Watch SKUs", use_container_width=True):
                 set_risk_filter(["Watch"])
 
@@ -686,6 +882,35 @@ else:
             st.metric("Warning SKUs", f"{warning_count:,}")
             if st.button("View Warning SKUs", use_container_width=True):
                 set_risk_filter(["Warning"])
+
+        # =========================
+        # RECENT OUTBOUND KPI
+        # =========================
+
+        st.subheader("Recent Outbound Summary")
+
+        r1, r2, r3 = st.columns(3)
+
+        with r1:
+            st.metric(
+                "Outbound Last 30 Days",
+                f"{total_outbound_30:,.0f}",
+                help=f"{recent_windows['30D']['start'].date()} to {recent_windows['30D']['end'].date()}"
+            )
+
+        with r2:
+            st.metric(
+                "Outbound Last 14 Days",
+                f"{total_outbound_14:,.0f}",
+                help=f"{recent_windows['14D']['start'].date()} to {recent_windows['14D']['end'].date()}"
+            )
+
+        with r3:
+            st.metric(
+                "Outbound Last 7 Days",
+                f"{total_outbound_7:,.0f}",
+                help=f"{recent_windows['7D']['start'].date()} to {recent_windows['7D']['end'].date()}"
+            )
 
         # =========================
         # INTERACTIVE QUICK VIEW
@@ -706,11 +931,16 @@ else:
             "Ending Balance",
             "Ending Ctn Balance",
             "Total Inbound",
+            "Total Inbound CTN",
             "Total Outbound",
+            "Total Outbound CTN",
             "Official Total Source Row",
             "Outbound Last 30 Days",
+            "Outbound Last 30 Days CTN",
             "Outbound Last 14 Days",
+            "Outbound Last 14 Days CTN",
             "Outbound Last 7 Days",
+            "Outbound Last 7 Days CTN",
             "Avg Daily Usage 30D",
             "Days Remaining",
             "Forecast Stockout Date",
@@ -747,12 +977,13 @@ else:
         # TABS
         # =========================
 
-        tab1, tab2, tab3, tab4, tab5 = st.tabs([
+        tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
             "Overview",
             "Shortage Forecast",
             "Movement Trend",
             "SKU Detail",
-            "Exceptions"
+            "Exceptions",
+            "Recent Outbound Audit"
         ])
 
         # =========================
@@ -799,7 +1030,7 @@ else:
                         "Official Total Source Row",
                         "Risk Level"
                     ],
-                    title="Top 15 Outbound SKUs"
+                    title="Top 15 Official Total Outbound SKUs"
                 )
 
                 st.plotly_chart(fig_top, use_container_width=True)
@@ -847,11 +1078,16 @@ else:
                 "Ending Balance",
                 "Ending Ctn Balance",
                 "Total Inbound",
+                "Total Inbound CTN",
                 "Total Outbound",
+                "Total Outbound CTN",
                 "Official Total Source Row",
                 "Outbound Last 30 Days",
+                "Outbound Last 30 Days CTN",
                 "Outbound Last 14 Days",
+                "Outbound Last 14 Days CTN",
                 "Outbound Last 7 Days",
+                "Outbound Last 7 Days CTN",
                 "Avg Daily Usage 30D",
                 "Days Remaining",
                 "Forecast Stockout Date",
@@ -860,7 +1096,13 @@ else:
                 "Report Start Date",
                 "Report End Date",
                 "Activity Start Date",
-                "Activity End Date"
+                "Activity End Date",
+                "Outbound 30D Start",
+                "Outbound 30D End",
+                "Outbound 14D Start",
+                "Outbound 14D End",
+                "Outbound 7D Start",
+                "Outbound 7D End"
             ]
 
             st.dataframe(
@@ -969,7 +1211,8 @@ else:
                         "Trans #",
                         "Ref #",
                         "Qty In",
-                        "Qty Out"
+                        "Qty Out",
+                        "Is Not Shipped"
                     ],
                     title=f"Transaction Balance Trend - {selected_sku}"
                 )
@@ -977,7 +1220,7 @@ else:
                 st.plotly_chart(fig_sku_balance, use_container_width=True)
 
         # =========================
-        # TAB 5: EXCEPTIONS / AUDIT
+        # TAB 5: EXCEPTIONS
         # =========================
 
         with tab5:
@@ -989,6 +1232,31 @@ else:
 
             st.dataframe(
                 cancelled,
+                use_container_width=True,
+                hide_index=True
+            )
+
+            st.write("### Not Shipped Rows with Qty Out")
+
+            not_shipped = df[
+                (df["Is Not Shipped"] == True)
+                & (df["Qty Out"] > 0)
+            ]
+
+            st.dataframe(
+                not_shipped,
+                use_container_width=True,
+                hide_index=True
+            )
+
+            st.write("### Negative Ending Ctn Balance")
+
+            negative_ctn = summary[
+                summary["Ending Ctn Balance"] < 0
+            ]
+
+            st.dataframe(
+                negative_ctn,
                 use_container_width=True,
                 hide_index=True
             )
@@ -1019,18 +1287,6 @@ else:
                 hide_index=True
             )
 
-            st.write("### No Recent Movement")
-
-            no_movement = summary[
-                summary["Risk Level"] == "No Recent Movement"
-            ]
-
-            st.dataframe(
-                no_movement,
-                use_container_width=True,
-                hide_index=True
-            )
-
             st.write("### Official Ending Balance Rows")
 
             official_ending = df[df["Movement Type"] == "Ending Balance"]
@@ -1051,12 +1307,74 @@ else:
                 hide_index=True
             )
 
-            st.write("### Raw Parsed Rows for Audit")
+        # =========================
+        # TAB 6: RECENT OUTBOUND AUDIT
+        # =========================
+
+        with tab6:
+            st.subheader("Recent Outbound Audit")
+
+            st.write("This tab shows exactly which rows are included in the 30D / 14D / 7D outbound calculations.")
+
+            window_choice = st.radio(
+                "Select outbound window",
+                ["30D", "14D", "7D"],
+                horizontal=True
+            )
+
+            audit_rows = recent_windows[window_choice]["rows"].copy()
+
+            st.write(
+                f"Window used: {recent_windows[window_choice]['start'].date()} "
+                f"to {recent_windows[window_choice]['end'].date()}"
+            )
+
+            audit_summary = (
+                audit_rows.groupby("SKU", as_index=False)[["Qty Out", "Qty Out CTN"]]
+                .sum()
+                .rename(columns={
+                    "Qty Out": f"Outbound {window_choice}",
+                    "Qty Out CTN": f"Outbound {window_choice} CTN"
+                })
+                .sort_values(f"Outbound {window_choice}", ascending=False)
+            )
+
+            st.write("### SKU-level summary for selected window")
 
             st.dataframe(
-                df,
+                audit_summary,
                 use_container_width=True,
                 hide_index=True
+            )
+
+            st.write("### Source transaction rows included")
+
+            audit_cols = [
+                "Source Row",
+                "SKU",
+                "Description",
+                "Activity Date",
+                "Activity Text",
+                "Trans #",
+                "Ref #",
+                "Qty Out",
+                "Qty Out CTN",
+                "Balance",
+                "Ctn Balance",
+                "Is Not Shipped"
+            ]
+
+            st.dataframe(
+                audit_rows[audit_cols].sort_values(["Activity Date", "SKU", "Source Row"]),
+                use_container_width=True,
+                hide_index=True
+            )
+
+            st.download_button(
+                f"Download {window_choice} Audit Rows CSV",
+                audit_rows[audit_cols].to_csv(index=False).encode("utf-8"),
+                file_name=f"outbound_{window_choice}_audit_rows.csv",
+                mime="text/csv"
             )
 
         # =========================
