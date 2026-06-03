@@ -470,7 +470,7 @@ def to_excel_bytes(model: dict) -> bytes:
 # Sidebar controls
 # ============================================================
 st.sidebar.title("📦 Inventory Dashboard")
-st.sidebar.caption("Upload Item Activity Report Excel để tự động build shortage report.")
+st.sidebar.caption("Upload Excel file to generate shortage report.")
 
 uploaded = st.sidebar.file_uploader(
     "Drop Excel file here",
@@ -500,14 +500,11 @@ st.sidebar.markdown("""
 - **No Recent Demand:** Outbound 30D = 0
 """)
 
-st.sidebar.caption("Logic locked: Official Total row = Ref # Total. Ending Balance row = Activity Date Ending Balance. Qty uses first number before slash.")
-
-
 # ============================================================
 # Main app
 # ============================================================
 st.title("Inventory Shortage / Prepare Dashboard")
-st.caption("Professional shortage-focused dashboard for Item Activity Report. CTN is intentionally ignored.")
+st.caption("Shortage-focused dashboard for Item Activity Report.")
 
 if uploaded is None:
     st.info("Upload an Item Activity Report Excel file from the left sidebar to generate the dashboard.")
@@ -538,7 +535,7 @@ report_end = model["report_end"]
 windows = model["windows"]
 
 st.markdown(
-    f"<div class='small-note'>Report Range: <b>{fmt_date(report_start)}</b> to <b>{fmt_date(report_end)}</b> | Recent windows are calculated from Report End Date.</div>",
+    f"<div class='small-note'>Report Range: <b>{fmt_date(report_start)}</b> to <b>{fmt_date(report_end)}</b></div>",
     unsafe_allow_html=True,
 )
 
