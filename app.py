@@ -24,7 +24,7 @@ st.caption(
 
 
 # =========================
-# HELPER FUNCTIONS
+# TEXT / NUMBER HELPERS
 # =========================
 
 def normalize_cell(value):
@@ -54,9 +54,13 @@ def normalize_cell(value):
     return text
 
 
+def clean_text(value):
+    return normalize_cell(value)
+
+
 def extract_number(value):
     """
-    Extract UNIT quantity from values like:
+    Extract unit quantity from values like:
 
     "5139 / 198"        -> 5139
     "   5139 / 198"     -> 5139
@@ -83,8 +87,9 @@ def extract_number(value):
     return 0.0
 
 
-def clean_text(value):
-    return normalize_cell(value)
+def has_number(value):
+    text = normalize_cell(value)
+    return bool(re.search(r"[-+]?\d*\.?\d+", text))
 
 
 def safe_row_text(row):
@@ -122,8 +127,16 @@ def parse_activity_date(activity_text):
     return pd.to_datetime(activity_text, errors="coerce")
 
 
+# =========================
+# COLUMN DETECTION HELPERS
+# =========================
+
 def find_header_row(raw_df):
-    for i in range(min(80, len(raw_df))):
+    """
+    Find transaction header row.
+    We expect a row that contains SKU and Activity Date.
+    """
+    for i in range(min(100, len(raw_df))):
         row_text = safe_row_text(raw_df.iloc[i])
 
         if "sku" in row_text and "activity date" in row_text:
@@ -131,6 +144,131 @@ def find_header_row(raw_df):
 
     return None
 
+
+def find_col(headers, contains_all=None, contains_any=None, fallback=None, exclude_any=None):
+    """
+    Find a column index from normalized header text.
+    """
+    contains_all = contains_all or []
+    contains_any = contains_any or []
+    exclude_any = exclude_any or []
+
+    for idx, header in enumerate(headers):
+        h = normalize_cell(header).lower()
+
+        if not h:
+            continue
+
+        if any(ex in h for ex in exclude_any):
+            continue
+
+        if contains_all and not all(term in h for term in contains_all):
+            continue
+
+        if contains_any and not any(term in h for term in contains_any):
+            continue
+
+        return idx
+
+    return fallback
+
+
+def build_column_map(raw_df, header_row):
+    """
+    Build flexible column map from header row.
+    Fallbacks are based on this file's layout.
+    """
+    headers = raw_df.iloc[header_row].tolist()
+    headers_lower = [normalize_cell(x).lower() for x in headers]
+
+    sku_col = find_col(headers_lower, contains_any=["sku"], fallback=0)
+    description_col = find_col(headers_lower, contains_any=["description", "item description"], fallback=2)
+    activity_date_col = find_col(headers_lower, contains_all=["activity", "date"], fallback=7)
+    trans_col = find_col(headers_lower, contains_any=["trans"], fallback=9)
+    ref_col = find_col(headers_lower, contains_any=["ref"], fallback=10)
+
+    qty_in_col = find_col(
+        headers_lower,
+        contains_all=["qty", "in"],
+        fallback=12,
+        exclude_any=["out"]
+    )
+
+    qty_out_col = find_col(
+        headers_lower,
+        contains_all=["qty", "out"],
+        fallback=14,
+        exclude_any=["inbound"]
+    )
+
+    balance_col = find_col(
+        headers_lower,
+        contains_any=["balance"],
+        fallback=19,
+        exclude_any=["ctn"]
+    )
+
+    return {
+        "sku": sku_col,
+        "description": description_col,
+        "activity_date": activity_date_col,
+        "trans": trans_col,
+        "ref": ref_col,
+        "qty_in": qty_in_col,
+        "qty_out": qty_out_col,
+        "balance": balance_col
+    }
+
+
+def get_cell(row, idx):
+    if idx is None:
+        return None
+
+    if idx < 0 or idx >= len(row):
+        return None
+
+    return row.iloc[idx]
+
+
+def read_numeric_with_fallback(row, main_idx, scan_start=None, scan_end=None):
+    """
+    Read number from main column.
+    If main cell is blank, scan nearby area.
+
+    This protects against cases where Excel layout has blank spaces before Qty.
+    It does NOT override a non-empty main cell.
+    """
+    main_value = get_cell(row, main_idx)
+    main_text = normalize_cell(main_value)
+
+    if main_text != "":
+        return extract_number(main_value), main_text
+
+    if scan_start is None:
+        scan_start = max((main_idx or 0) - 1, 0)
+
+    if scan_end is None:
+        scan_end = min((main_idx or 0) + 3, len(row) - 1)
+
+    scan_start = max(scan_start, 0)
+    scan_end = min(scan_end, len(row) - 1)
+
+    for col in range(scan_start, scan_end + 1):
+        value = get_cell(row, col)
+        text = normalize_cell(value)
+
+        if text == "":
+            continue
+
+        if has_number(text):
+            return extract_number(text), text
+
+    return 0.0, ""
+
+
+# =========================
+# REPORT RANGE
+# =========================
 
 def extract_report_range(raw_df):
     """
@@ -180,9 +318,9 @@ def extract_report_range(raw_df):
     return report_start, report_end
 
 
-def set_risk_filter(values):
-    st.session_state["risk_filter_click"] = values
-
+# =========================
+# RECENT WINDOW
+# =========================
 
 def filter_recent_window(tx, end_date, days):
     """
@@ -195,7 +333,8 @@ def filter_recent_window(tx, end_date, days):
     Last 14 days = 2026-05-19 to 2026-06-01
     Last 7 days = 2026-05-26 to 2026-06-01
 
-    Only rows with Qty Out > 0 are included.
+    Important:
+    Not Shipped rows are included if they have Qty Out > 0.
     """
     start_date = end_date - timedelta(days=days - 1)
 
@@ -206,6 +345,10 @@ def filter_recent_window(tx, end_date, days):
     ].copy()
 
     return filtered, start_date, end_date
+
+
+def set_risk_filter(values):
+    st.session_state["risk_filter_click"] = values
 
 
 # =========================
@@ -223,6 +366,8 @@ def parse_item_activity_report(uploaded_file):
             "Cannot find the header row. Please make sure this is an Item Activity Report."
         )
 
+    col = build_column_map(raw, header_row)
+
     records = []
 
     current_sku = None
@@ -231,12 +376,13 @@ def parse_item_activity_report(uploaded_file):
     for idx in range(header_row + 1, len(raw)):
         row = raw.iloc[idx]
 
-        sku_cell = row.iloc[0] if len(row) > 0 else None
-        description_cell = row.iloc[2] if len(row) > 2 else None
+        sku_cell = get_cell(row, col["sku"])
+        description_cell = get_cell(row, col["description"])
 
-        # New SKU block
-        if pd.notna(sku_cell) and str(sku_cell).strip() != "":
-            sku_text = str(sku_cell).strip()
+        # Detect new SKU block.
+        # Transaction rows usually have blank SKU.
+        if pd.notna(sku_cell) and normalize_cell(sku_cell) != "":
+            sku_text = normalize_cell(sku_cell)
 
             ignored_words = [
                 "sku",
@@ -244,7 +390,9 @@ def parse_item_activity_report(uploaded_file):
                 "warehouse",
                 "customer",
                 "item activity",
-                "activity date"
+                "activity date",
+                "page",
+                "total"
             ]
 
             if sku_text.lower() not in ignored_words:
@@ -253,13 +401,9 @@ def parse_item_activity_report(uploaded_file):
 
             continue
 
-        # Current file layout
-        activity_date_raw = row.iloc[7] if len(row) > 7 else None
-        trans_no = row.iloc[9] if len(row) > 9 else None
-        ref_no = row.iloc[10] if len(row) > 10 else None
-        qty_in = row.iloc[12] if len(row) > 12 else None
-        qty_out = row.iloc[14] if len(row) > 14 else None
-        balance = row.iloc[19] if len(row) > 19 else None
+        activity_date_raw = get_cell(row, col["activity_date"])
+        trans_no = get_cell(row, col["trans"])
+        ref_no = get_cell(row, col["ref"])
 
         activity_text = clean_text(activity_date_raw)
         trans_text = clean_text(trans_no)
@@ -271,8 +415,14 @@ def parse_item_activity_report(uploaded_file):
         is_beginning_balance = activity_text_lower == "beginning balance"
         is_ending_balance = activity_text_lower == "ending balance"
 
-        # Important: official Total row is in Ref # column
-        is_total_row = ref_text_lower == "total"
+        # Important:
+        # In this report, official Total row is usually in Ref # column.
+        # We also allow any exact "Total" cell as fallback.
+        row_cells_lower = [normalize_cell(x).lower() for x in row.tolist()]
+        is_total_row = (
+            ref_text_lower == "total"
+            or any(x == "total" for x in row_cells_lower)
+        )
 
         should_keep_row = (
             current_sku is not None
@@ -290,12 +440,35 @@ def parse_item_activity_report(uploaded_file):
         else:
             activity_date = parse_activity_date(activity_text)
 
-        raw_qty_in = normalize_cell(qty_in)
-        raw_qty_out = normalize_cell(qty_out)
+        # Read qty with fallback scanning.
+        # Qty In is usually before Qty Out.
+        # Qty Out is usually before Balance.
+        qty_in_scan_start = col["qty_in"]
+        qty_in_scan_end = max(col["qty_in"], col["qty_out"] - 1) if col["qty_out"] else col["qty_in"] + 2
 
-        qty_in_num = extract_number(qty_in)
-        qty_out_num = extract_number(qty_out)
-        balance_num = extract_number(balance)
+        qty_out_scan_start = col["qty_out"]
+        qty_out_scan_end = max(col["qty_out"], col["balance"] - 1) if col["balance"] else col["qty_out"] + 3
+
+        qty_in_num, raw_qty_in = read_numeric_with_fallback(
+            row,
+            col["qty_in"],
+            qty_in_scan_start,
+            qty_in_scan_end
+        )
+
+        qty_out_num, raw_qty_out = read_numeric_with_fallback(
+            row,
+            col["qty_out"],
+            qty_out_scan_start,
+            qty_out_scan_end
+        )
+
+        balance_num, raw_balance = read_numeric_with_fallback(
+            row,
+            col["balance"],
+            col["balance"],
+            min(col["balance"] + 2, len(row) - 1)
+        )
 
         if is_beginning_balance:
             movement_type = "Beginning Balance"
@@ -329,6 +502,7 @@ def parse_item_activity_report(uploaded_file):
             "Ref #": ref_text,
             "Raw Qty In": raw_qty_in,
             "Raw Qty Out": raw_qty_out,
+            "Raw Balance": raw_balance,
             "Qty In": qty_in_num,
             "Qty Out": qty_out_num,
             "Balance": balance_num,
@@ -353,6 +527,8 @@ def parse_item_activity_report(uploaded_file):
 # =========================
 
 def build_summary(df, report_start=None, report_end=None):
+    # Real transaction rows only.
+    # Not Shipped rows are kept if they have parsed date and Qty Out.
     tx = df[
         (df["Activity Date"].notna())
         & (~df["Movement Type"].isin(["Beginning Balance", "Ending Balance", "Total"]))
@@ -638,7 +814,7 @@ st.sidebar.write(
     Ending Balance = official Ending Balance row  
     Total Inbound = official Total row  
     Total Outbound = official Total row  
-    Recent usage = dated transaction rows with Qty Out > 0  
+    Recent usage = dated transaction rows with Qty Out > 0, including Not Shipped rows  
     Forecast = Ending Balance / Avg Daily Usage  
     """
 )
@@ -709,7 +885,7 @@ else:
             st.write("**Balance / Total logic:**")
             st.write("Ending Balance uses official Ending Balance row.")
             st.write("Total Inbound / Outbound uses official Total row.")
-            st.write("Recent outbound uses dated transaction rows with Qty Out > 0.")
+            st.write("Recent outbound uses dated transaction rows with Qty Out > 0, including Not Shipped rows.")
 
         if "risk_filter_click" not in st.session_state:
             st.session_state["risk_filter_click"] = [
@@ -1162,10 +1338,12 @@ else:
                 "Ref #",
                 "Raw Qty In",
                 "Raw Qty Out",
+                "Raw Balance",
                 "Qty In",
                 "Qty Out",
                 "Balance",
-                "Movement Type"
+                "Movement Type",
+                "Is Not Shipped"
             ]
 
             st.dataframe(
