@@ -496,7 +496,6 @@ st.sidebar.caption("Logic locked: Official Total row = Ref # Total. Ending Balan
 # Main app
 # ============================================================
 st.title("Inventory Shortage / Prepare Dashboard")
-st.caption("Professional shortage-focused dashboard for Item Activity Report. CTN is intentionally ignored.")
 
 if uploaded is None:
     st.info("Upload an Item Activity Report Excel file from the left sidebar to generate the dashboard.")
