@@ -41,24 +41,12 @@ st.markdown(
             border-right: 1px solid var(--line);
         }
         [data-testid="stSidebar"] * { font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif; }
-        .hero-card {
-            border: 1px solid var(--line);
-            border-radius: 28px;
-            padding: 28px 30px;
-            background: rgba(255,255,255,0.78);
-            backdrop-filter: blur(20px);
-            box-shadow: 0 18px 45px rgba(0,0,0,0.06);
-            margin-bottom: 18px;
+        .top-meta {
+            font-size: 0.86rem;
+            color: var(--muted);
+            letter-spacing: -0.01em;
+            margin: 0.1rem 0 1rem 0;
         }
-        .hero-title {
-            font-size: 2.35rem;
-            font-weight: 750;
-            letter-spacing: -0.045em;
-            color: var(--text);
-            line-height: 1.04;
-            margin-bottom: 8px;
-        }
-        .hero-subtitle { font-size: 0.98rem; color: var(--muted); letter-spacing: -0.01em; }
         .kpi-card {
             border: 1px solid var(--line);
             border-radius: 22px;
@@ -85,7 +73,9 @@ st.markdown(
         }
         .upload-title { font-size: 1.32rem; font-weight: 720; color: var(--text); letter-spacing: -0.035em; margin-bottom: 8px; }
         .upload-subtitle { font-size: 0.94rem; color: var(--muted); letter-spacing: -0.01em; }
-        .sidebar-section-label { font-size: 0.70rem; font-weight: 700; color: #86868b; letter-spacing: .08em; text-transform: uppercase; margin-top: 2px; margin-bottom: -6px; }
+        .sidebar-title { font-size: 1.05rem; font-weight: 720; color: var(--text); letter-spacing: -0.03em; margin-bottom: 2px; }
+        .sidebar-muted { font-size: 0.78rem; color: var(--muted); margin-bottom: 18px; }
+        .sidebar-section-label { font-size: 0.68rem; font-weight: 720; color: #6e6e73; letter-spacing: .08em; text-transform: uppercase; margin-top: 6px; margin-bottom: 8px; }
         div[data-testid="stDataFrame"] { border-radius: 18px; overflow: hidden; border: 1px solid var(--line); background: rgba(255,255,255,0.85); }
         .stButton > button, .stDownloadButton > button, button[kind="primary"], button[kind="secondary"] {
             border-radius: 999px !important;
@@ -96,7 +86,31 @@ st.markdown(
             font-weight: 600 !important;
         }
         .stButton > button:hover, .stDownloadButton > button:hover { border-color: rgba(0,122,255,0.42) !important; color: var(--blue) !important; }
-        div[data-baseweb="select"] > div, div[data-baseweb="input"] > div, div[data-baseweb="base-input"], input { border-radius: 14px !important; }
+        div[data-baseweb="select"] > div,
+        div[data-baseweb="input"] > div,
+        div[data-baseweb="base-input"],
+        input,
+        textarea {
+            border-radius: 14px !important;
+            background: #ffffff !important;
+            border-color: #c6c6cc !important;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.04) !important;
+        }
+        div[data-baseweb="select"] > div:hover,
+        div[data-baseweb="input"] > div:hover,
+        input:hover {
+            border-color: #9a9aa0 !important;
+        }
+        div[data-baseweb="select"] > div:focus-within,
+        div[data-baseweb="input"] > div:focus-within {
+            border-color: rgba(0,122,255,0.70) !important;
+            box-shadow: 0 0 0 3px rgba(0,122,255,0.12) !important;
+        }
+        [data-testid="stSidebar"] div[data-baseweb="select"] > div,
+        [data-testid="stSidebar"] div[data-baseweb="input"] > div {
+            background: rgba(255,255,255,0.96) !important;
+            border: 1px solid #b8b8bf !important;
+        }
         .stTabs [data-baseweb="tab-list"] { gap: 8px; }
         .stTabs [data-baseweb="tab"] { border-radius: 999px; padding: 8px 16px; background: rgba(255,255,255,0.52); color: var(--muted); }
         .stTabs [aria-selected="true"] { background: rgba(255,255,255,0.95) !important; color: var(--text) !important; box-shadow: 0 4px 14px rgba(0,0,0,0.05); }
@@ -679,33 +693,32 @@ def show_limited_dataframe(df: pd.DataFrame, height: int = 420, limit: int = 500
 # ============================================================
 # Sidebar controls
 # ============================================================
-st.sidebar.title("Inventory")
-st.sidebar.caption("Shortage report")
-st.sidebar.markdown('<div class="sidebar-section-label">Upload</div>', unsafe_allow_html=True)
+st.sidebar.markdown('<div class="sidebar-title">Inventory Dashboard</div>', unsafe_allow_html=True)
+st.sidebar.markdown('<div class="sidebar-muted">Shortage report</div>', unsafe_allow_html=True)
 
+st.sidebar.markdown('<div class="sidebar-section-label">File</div>', unsafe_allow_html=True)
 uploaded = st.sidebar.file_uploader(
-    "Drop Excel file here",
+    "Excel file",
     type=["xlsx", "xls"],
-    help="File format tương tự Item Activity Report.",
+    help="Upload Item Activity Report.",
+    label_visibility="collapsed",
 )
 
 st.sidebar.divider()
 st.sidebar.markdown('<div class="sidebar-section-label">Filters</div>', unsafe_allow_html=True)
-st.sidebar.subheader("Risk Filter")
 with st.sidebar.form("filter_form"):
     show_risks = st.multiselect(
         "Risk Level",
         options=["Critical", "Warning", "Watch", "Healthy"],
         default=["Critical", "Warning", "Watch"],
     )
-
-    min_usage = st.number_input("Minimum Outbound Last 30 Days", min_value=0, value=0, step=1)
-    search_text = st.text_input("Search SKU / Description", placeholder="Example: SBED, BACKUP SWITCH...")
-    st.form_submit_button("Apply Filters")
+    min_usage = st.number_input("Min outbound 30D", min_value=0, value=0, step=1)
+    search_text = st.text_input("Search", placeholder="SKU or description")
+    st.form_submit_button("Apply")
 
 st.sidebar.divider()
-st.sidebar.markdown('<div class="sidebar-section-label">Rules</div>', unsafe_allow_html=True)
-with st.sidebar.expander("Notes", expanded=False):
+st.sidebar.markdown('<div class="sidebar-section-label">Notes</div>', unsafe_allow_html=True)
+with st.sidebar.expander("Risk logic", expanded=False):
     st.markdown("""
 - Critical: 0–7 days
 - Warning: 8–14 days
@@ -716,7 +729,6 @@ with st.sidebar.expander("Notes", expanded=False):
 # ============================================================
 # Main app
 # ============================================================
-hero_header()
 
 if uploaded is None:
     st.markdown(
@@ -754,7 +766,10 @@ report_start = model["report_start"]
 report_end = model["report_end"]
 windows = model["windows"]
 
-hero_header(report_start, report_end, uploaded.name if uploaded is not None else "")
+st.markdown(
+    f"<div class='top-meta'>Report Range: <b>{fmt_date(report_start)}</b> to <b>{fmt_date(report_end)}</b></div>",
+    unsafe_allow_html=True,
+)
 # KPI cards
 critical_count = int((sku_df["Risk Level"] == "Critical").sum())
 warning_count = int((sku_df["Risk Level"] == "Warning").sum())
