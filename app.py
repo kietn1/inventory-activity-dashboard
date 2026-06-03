@@ -449,7 +449,7 @@ def build_inventory_model(raw: pd.DataFrame) -> dict:
     }
 
 
-def fmt_num(value, decimals=0):
+def fmt_num(value, decimals=2):
     if value is None or pd.isna(value):
         return "-"
     if value == np.inf:
@@ -485,16 +485,24 @@ def metric_card(label, value, help_text=""):
     )
 
 
+def round_numeric_columns(df: pd.DataFrame) -> pd.DataFrame:
+    out = df.copy()
+    numeric_cols = out.select_dtypes(include=["number"]).columns
+    for col in numeric_cols:
+        out[col] = out[col].round(2)
+    return out
+
+
 def prepare_display(df: pd.DataFrame) -> pd.DataFrame:
     out = df.copy()
     out["Risk Level"] = out["Risk Level"].map(risk_badge_text)
     for c in ["Ending Balance", "Official Total Outbound", "Outbound Last 30 Days", "Outbound Last 14 Days", "Outbound Last 7 Days"]:
         if c in out.columns:
-            out[c] = out[c].round(0).astype("Int64")
+                out[c] = out[c].round(2)
     if "Avg Daily Usage 30D" in out.columns:
         out["Avg Daily Usage 30D"] = out["Avg Daily Usage 30D"].round(2)
     if "Days Remaining" in out.columns:
-        out["Days Remaining"] = out["Days Remaining"].replace(np.inf, np.nan).round(1)
+        out["Days Remaining"] = out["Days Remaining"].replace(np.inf, np.nan).round(2)
     for c in ["Forecast Stockout Date", "Last Activity Date"]:
         if c in out.columns:
             out[c] = pd.to_datetime(out[c], errors="coerce").dt.strftime("%m/%d/%Y").replace("NaT", "")
@@ -504,12 +512,18 @@ def prepare_display(df: pd.DataFrame) -> pd.DataFrame:
 def to_excel_bytes(model: dict) -> bytes:
     output = BytesIO()
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
-        prepare_display(model["sku_df"]).drop(columns=["Risk Sort"], errors="ignore").to_excel(writer, sheet_name="Shortage Priority", index=False)
-        model["tx_df"].to_excel(writer, sheet_name="Dated Transactions", index=False)
-        model["official_total_df"].to_excel(writer, sheet_name="Official Total Rows", index=False)
-        model["official_ending_df"].to_excel(writer, sheet_name="Ending Balance Rows", index=False)
-        model["not_shipped_df"].to_excel(writer, sheet_name="Not Shipped Rows", index=False)
-        model["cancelled_df"].to_excel(writer, sheet_name="Cancelled Rows", index=False)
+        round_numeric_columns(prepare_display(model["sku_df"]).drop(columns=["Risk Sort"], errors="ignore")).to_excel(writer, sheet_name="Shortage Priority", index=False)
+        round_numeric_columns(model["tx_df"]).to_excel(writer, sheet_name="Dated Transactions", index=False)
+        round_numeric_columns(model["official_total_df"]).to_excel(writer, sheet_name="Official Total Rows", index=False)
+        round_numeric_columns(model["official_ending_df"]).to_excel(writer, sheet_name="Ending Balance Rows", index=False)
+        round_numeric_columns(model["not_shipped_df"]).to_excel(writer, sheet_name="Not Shipped Rows", index=False)
+        round_numeric_columns(model["cancelled_df"]).to_excel(writer, sheet_name="Cancelled Rows", index=False)
+
+        for worksheet in writer.sheets.values():
+            for row in worksheet.iter_rows(min_row=2):
+                for cell in row:
+                    if isinstance(cell.value, (int, float)) and not isinstance(cell.value, bool):
+                        cell.number_format = '#,##0.00'
     return output.getvalue()
 
 
@@ -658,7 +672,7 @@ with sku_tab:
     with d2:
         metric_card("Ending Balance", fmt_num(selected["Ending Balance"]), "Official Ending Balance")
     with d3:
-        metric_card("Days Remaining", fmt_num(selected["Days Remaining"], 1), "Based on Avg Daily Usage 30D")
+        metric_card("Days Remaining", fmt_num(selected["Days Remaining"], 2), "Based on Avg Daily Usage 30D")
     with d4:
         metric_card("Forecast Stockout", fmt_date(selected["Forecast Stockout Date"]), "Forecast from report end date")
 
@@ -675,13 +689,14 @@ with sku_tab:
         "Official Ending Row",
     ]
     detail = selected[detail_cols].to_frame("Value")
+    detail["Value"] = detail["Value"].apply(lambda x: round(float(x), 2) if isinstance(x, (int, float, np.integer, np.floating)) and np.isfinite(x) else x)
     st.dataframe(detail, use_container_width=True)
 
     tx_sku = model["tx_df"]
     if not tx_sku.empty:
         tx_sku = tx_sku[tx_sku["SKU"] == selected_sku].sort_values("Activity Date", ascending=False)
         st.subheader("Dated outbound transactions")
-        st.dataframe(tx_sku, use_container_width=True, hide_index=True, height=360)
+        st.dataframe(round_numeric_columns(tx_sku), use_container_width=True, hide_index=True, height=360)
 
 with trend_tab:
     st.subheader("Outbound Trend")
@@ -741,12 +756,12 @@ with audit_tab:
             valid_dates = model["window_dates"][label]
             audit_tx = tx[tx["Activity Date"].isin(valid_dates)].copy()
             st.write(f"Window: **{fmt_date(start)} – {fmt_date(end)}** | Valid working dates counted: **{len(valid_dates)}**")
-            st.dataframe(audit_tx.sort_values(["SKU", "Activity Date"]), use_container_width=True, hide_index=True, height=520)
+            st.dataframe(round_numeric_columns(audit_tx.sort_values(["SKU", "Activity Date"])), use_container_width=True, hide_index=True, height=520)
     elif audit_choice == "Official Total Rows":
-        st.dataframe(model["official_total_df"], use_container_width=True, hide_index=True, height=520)
+        st.dataframe(round_numeric_columns(model["official_total_df"]), use_container_width=True, hide_index=True, height=520)
     elif audit_choice == "Official Ending Balance Rows":
-        st.dataframe(model["official_ending_df"], use_container_width=True, hide_index=True, height=520)
+        st.dataframe(round_numeric_columns(model["official_ending_df"]), use_container_width=True, hide_index=True, height=520)
     elif audit_choice == "Not Shipped Rows":
-        st.dataframe(model["not_shipped_df"], use_container_width=True, hide_index=True, height=520)
+        st.dataframe(round_numeric_columns(model["not_shipped_df"]), use_container_width=True, hide_index=True, height=520)
     elif audit_choice == "Cancelled Transactions":
-        st.dataframe(model["cancelled_df"], use_container_width=True, hide_index=True, height=520)
+        st.dataframe(round_numeric_columns(model["cancelled_df"]), use_container_width=True, hide_index=True, height=520)
