@@ -143,23 +143,12 @@ def extract_report_range(raw: pd.DataFrame):
     return start_dt, end_dt
 
 
-def business_days_count(start_date, end_date) -> int:
-    days = pd.date_range(start=start_date, end=end_date, freq="D")
-    return int((days.weekday < 5).sum())
-
-
-def add_business_days(start_date, days):
-    if pd.isna(days) or not np.isfinite(days):
-        return pd.NaT
-    return pd.Timestamp(np.busday_offset(pd.to_datetime(start_date).date(), int(np.floor(days)), roll="forward"))
-
-
 def load_excel_to_raw(uploaded_file) -> pd.DataFrame:
     # header=None is important because the file has report title rows above the actual header.
     return pd.read_excel(uploaded_file, sheet_name=0, header=None, dtype=object)
 
 
-def build_inventory_model(raw: pd.DataFrame, exclude_weekends: bool = False) -> dict:
+def build_inventory_model(raw: pd.DataFrame) -> dict:
     header_idx = find_header_row(raw)
     report_start, report_end = extract_report_range(raw)
 
@@ -324,27 +313,42 @@ def build_inventory_model(raw: pd.DataFrame, exclude_weekends: bool = False) -> 
     report_end = pd.to_datetime(report_end).normalize()
     report_start = pd.to_datetime(report_start).normalize()
 
-    windows = {
-        "Outbound Last 30 Days": (report_end - pd.Timedelta(days=29), report_end),
-        "Outbound Last 14 Days": (report_end - pd.Timedelta(days=13), report_end),
-        "Outbound Last 7 Days": (report_end - pd.Timedelta(days=6), report_end),
+    recent_window_sizes = {
+        "Outbound Last 30 Days": 30,
+        "Outbound Last 14 Days": 14,
+        "Outbound Last 7 Days": 7,
     }
+
+    if tx_df.empty:
+        all_activity_dates = []
+    else:
+        all_activity_dates = sorted(
+            pd.to_datetime(tx_df.loc[tx_df["Activity Date"] <= report_end, "Activity Date"].dropna().unique())
+        )
+
+    active_date_windows = {}
+    windows = {}
+    for label, day_count in recent_window_sizes.items():
+        selected_dates = all_activity_dates[-day_count:]
+        active_date_windows[label] = selected_dates
+        if selected_dates:
+            windows[label] = (pd.Timestamp(selected_dates[0]), pd.Timestamp(selected_dates[-1]))
+        else:
+            windows[label] = (pd.NaT, pd.NaT)
 
     if sku_df.empty:
         raise ValueError("Không tìm thấy SKU nào trong file.")
 
-    for label, (start, end) in windows.items():
-        if tx_df.empty:
+    for label, selected_dates in active_date_windows.items():
+        if tx_df.empty or not selected_dates:
             sku_df[label] = 0.0
         else:
-            mask = (tx_df["Activity Date"] >= start) & (tx_df["Activity Date"] <= end)
-            if exclude_weekends:
-                mask &= tx_df["Activity Date"].dt.weekday < 5
+            mask = tx_df["Activity Date"].isin(selected_dates)
             agg = tx_df.loc[mask].groupby("SKU", as_index=True)["Qty Out"].sum()
             sku_df[label] = sku_df["SKU"].map(agg).fillna(0.0)
 
-    usage_days_30d = business_days_count(windows["Outbound Last 30 Days"][0], windows["Outbound Last 30 Days"][1]) if exclude_weekends else 30
-    sku_df["Avg Daily Usage 30D"] = sku_df["Outbound Last 30 Days"] / usage_days_30d
+    active_days_30d = max(len(active_date_windows["Outbound Last 30 Days"]), 1)
+    sku_df["Avg Daily Usage 30D"] = sku_df["Outbound Last 30 Days"] / active_days_30d
     sku_df["Days Remaining"] = np.where(
         sku_df["Avg Daily Usage 30D"] > 0,
         sku_df["Ending Balance"] / sku_df["Avg Daily Usage 30D"],
@@ -381,12 +385,18 @@ def build_inventory_model(raw: pd.DataFrame, exclude_weekends: bool = False) -> 
     sku_df["Risk Level"] = sku_df.apply(risk_level, axis=1)
     sku_df["Recommended Action"] = sku_df.apply(recommended_action, axis=1)
 
+    active_days_30d_dates = active_date_windows["Outbound Last 30 Days"]
+    if len(active_days_30d_dates) >= 2:
+        active_day_span = (pd.Timestamp(active_days_30d_dates[-1]) - pd.Timestamp(active_days_30d_dates[0])).days
+        avg_calendar_gap_per_activity_day = active_day_span / max(len(active_days_30d_dates) - 1, 1)
+    else:
+        avg_calendar_gap_per_activity_day = 1
+
     def stockout_date(row):
         if not np.isfinite(row["Days Remaining"]):
             return pd.NaT
-        if exclude_weekends:
-            return add_business_days(report_end, row["Days Remaining"])
-        return report_end + pd.Timedelta(days=int(np.floor(row["Days Remaining"])))
+        estimated_calendar_days = int(np.floor(row["Days Remaining"] * avg_calendar_gap_per_activity_day))
+        return report_end + pd.Timedelta(days=estimated_calendar_days)
 
     sku_df["Forecast Stockout Date"] = sku_df.apply(stockout_date, axis=1)
 
@@ -414,6 +424,8 @@ def build_inventory_model(raw: pd.DataFrame, exclude_weekends: bool = False) -> 
         "report_start": report_start,
         "report_end": report_end,
         "windows": windows,
+        "active_date_windows": active_date_windows,
+        "active_days_30d": active_days_30d,
         "header_idx": header_idx,
     }
 
@@ -504,7 +516,6 @@ show_risks = st.sidebar.multiselect(
 
 min_usage = st.sidebar.number_input("Minimum Outbound Last 30 Days", min_value=0, value=0, step=1)
 search_text = st.sidebar.text_input("Search SKU / Description", placeholder="Example: SBED, BACKUP SWITCH...")
-exclude_weekends = st.sidebar.checkbox("Exclude Saturdays and Sundays", value=True)
 
 st.sidebar.divider()
 st.sidebar.markdown("""
@@ -529,7 +540,7 @@ if uploaded is None:
 
 try:
     raw_df = load_excel_to_raw(uploaded)
-    model = build_inventory_model(raw_df, exclude_weekends=exclude_weekends)
+    model = build_inventory_model(raw_df)
 except Exception as exc:
     st.error("File could not be processed. Please check if this is the correct Item Activity Report format.")
     st.exception(exc)
@@ -706,11 +717,9 @@ with audit_tab:
         if tx.empty:
             st.info("No dated outbound transactions found.")
         else:
-            audit_mask = (tx["Activity Date"] >= start) & (tx["Activity Date"] <= end)
-            if exclude_weekends:
-                audit_mask &= tx["Activity Date"].dt.weekday < 5
-            audit_tx = tx[audit_mask].copy()
-            st.write(f"Window: **{fmt_date(start)} – {fmt_date(end)}**")
+            selected_dates = model.get("active_date_windows", {}).get(label, [])
+            audit_tx = tx[tx["Activity Date"].isin(selected_dates)].copy()
+            st.write(f"Activity-date window: **{fmt_date(start)} – {fmt_date(end)}** | Active dates counted: **{len(selected_dates)}**")
             st.dataframe(audit_tx.sort_values(["SKU", "Activity Date"]), use_container_width=True, hide_index=True, height=520)
     elif audit_choice == "Official Total Rows":
         st.dataframe(model["official_total_df"], use_container_width=True, hide_index=True, height=520)
