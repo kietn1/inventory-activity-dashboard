@@ -39,6 +39,59 @@ st.markdown(
         .small-note {font-size:0.81rem; color:#6B7280;}
         div[data-testid="stDataFrame"] {border-radius: 14px; overflow: hidden;}
         div[data-testid="stSidebar"] {background:#F8FAFC;}
+        div[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] {color:#111827;}
+        .sidebar-notes-card {
+            margin-top: 0.35rem;
+            padding: 14px 14px 12px 14px;
+            border-radius: 18px;
+            background: linear-gradient(180deg, rgba(255,255,255,0.96), rgba(245,245,247,0.92));
+            border: 1px solid rgba(17,24,39,0.08);
+            box-shadow: 0 10px 30px rgba(15,23,42,0.07);
+        }
+        .sidebar-notes-title {
+            display:flex;
+            align-items:center;
+            gap:8px;
+            font-size:0.92rem;
+            font-weight:800;
+            color:#111827;
+            letter-spacing:-0.01em;
+            margin-bottom:10px;
+        }
+        .risk-row {
+            display:flex;
+            align-items:flex-start;
+            gap:9px;
+            padding:8px 0;
+            border-bottom:1px solid rgba(17,24,39,0.06);
+        }
+        .risk-row:last-of-type {border-bottom:0;}
+        .risk-dot {
+            width:9px;
+            height:9px;
+            border-radius:99px;
+            margin-top:6px;
+            flex:0 0 auto;
+            box-shadow:0 0 0 4px rgba(17,24,39,0.04);
+        }
+        .dot-critical {background:#FF3B30;}
+        .dot-warning {background:#FF9500;}
+        .dot-watch {background:#FFD60A;}
+        .dot-healthy {background:#34C759;}
+        .dot-muted {background:#8E8E93;}
+        .risk-copy {line-height:1.25;}
+        .risk-name {font-size:0.80rem; font-weight:800; color:#1F2937;}
+        .risk-desc {font-size:0.74rem; color:#6B7280; margin-top:2px;}
+        .sidebar-formula-note {
+            margin-top:11px;
+            padding:10px 11px;
+            border-radius:14px;
+            background: rgba(0,122,255,0.07);
+            border:1px solid rgba(0,122,255,0.12);
+            color:#475569;
+            font-size:0.74rem;
+            line-height:1.38;
+        }
     </style>
     """,
     unsafe_allow_html=True,
@@ -589,17 +642,58 @@ with st.sidebar.form("filter_form"):
     st.form_submit_button("Apply Filters")
 
 st.sidebar.divider()
-st.sidebar.markdown("""
-#### Risk Level Notes
+st.sidebar.markdown(
+    """
+    <div class="sidebar-notes-card">
+        <div class="sidebar-notes-title">🧭 Risk Level Notes</div>
 
-- **Critical:** 0–7 days remaining
-- **Warning:** 8–14 days remaining
-- **Watch:** 15–30 days remaining
-- **Healthy:** More than 30 days remaining
-- **No Recent Demand:** Outbound 30D = 0
+        <div class="risk-row">
+            <span class="risk-dot dot-critical"></span>
+            <div class="risk-copy">
+                <div class="risk-name">Critical</div>
+                <div class="risk-desc">0–7 days remaining</div>
+            </div>
+        </div>
 
-Recent windows include the report date and count backward by valid working days only, excluding Saturdays, Sundays, and US federal holidays.
-""")
+        <div class="risk-row">
+            <span class="risk-dot dot-warning"></span>
+            <div class="risk-copy">
+                <div class="risk-name">Warning</div>
+                <div class="risk-desc">8–14 days remaining</div>
+            </div>
+        </div>
+
+        <div class="risk-row">
+            <span class="risk-dot dot-watch"></span>
+            <div class="risk-copy">
+                <div class="risk-name">Watch</div>
+                <div class="risk-desc">15–30 days remaining</div>
+            </div>
+        </div>
+
+        <div class="risk-row">
+            <span class="risk-dot dot-healthy"></span>
+            <div class="risk-copy">
+                <div class="risk-name">Healthy</div>
+                <div class="risk-desc">More than 30 days remaining</div>
+            </div>
+        </div>
+
+        <div class="risk-row">
+            <span class="risk-dot dot-muted"></span>
+            <div class="risk-copy">
+                <div class="risk-name">No Recent Demand</div>
+                <div class="risk-desc">Outbound 30D = 0</div>
+            </div>
+        </div>
+
+        <div class="sidebar-formula-note">
+            Recent windows include the report date and count backward by valid working days only, excluding Saturdays, Sundays, and US federal holidays.
+        </div>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
 
 # ============================================================
 # Main app
