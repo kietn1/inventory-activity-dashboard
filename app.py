@@ -21,24 +21,154 @@ st.set_page_config(
 st.markdown(
     """
     <style>
-        .main .block-container {padding-top: 0.9rem; padding-bottom: 1.4rem; max-width: 1500px;}
-        header, footer {visibility: hidden;}
-        .kpi-card {
-            border: 1px solid rgba(0,0,0,0.08);
-            border-radius: 18px;
-            padding: 16px 16px 13px 16px;
-            background: rgba(255,255,255,0.86);
-            box-shadow: 0 6px 24px rgba(16, 24, 40, 0.06);
-            min-height: 104px;
+        html, body, [class*="css"] {
+            font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", sans-serif;
         }
-        .kpi-label {font-size: 0.82rem; color:#6B7280; font-weight: 650; margin-bottom: 7px;}
-        .kpi-value {font-size: 1.75rem; color:#111827; font-weight: 800; line-height: 1.08; letter-spacing:-0.03em;}
-        .kpi-help {font-size: 0.76rem; color:#9CA3AF; margin-top: 8px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
-        .section-title {font-size:1.12rem; font-weight:800; color:#111827; margin-top: 0.3rem;}
-        .section-subtitle {font-size:0.84rem; color:#6B7280; margin-bottom: 0.7rem;}
-        .small-note {font-size:0.81rem; color:#6B7280;}
-        div[data-testid="stDataFrame"] {border-radius: 14px; overflow: hidden;}
-        div[data-testid="stSidebar"] {background:#F8FAFC;}
+
+        .stApp {
+            background: #F5F5F7;
+            color: #1D1D1F;
+        }
+
+        .main .block-container {
+            padding-top: 0.75rem;
+            padding-bottom: 2rem;
+            max-width: 1450px;
+        }
+
+        header, footer {
+            visibility: hidden;
+        }
+
+        div[data-testid="stSidebar"] {
+            background: #FFFFFF;
+            border-right: 1px solid rgba(0,0,0,0.06);
+        }
+
+        div[data-testid="stSidebar"] h1,
+        div[data-testid="stSidebar"] h2,
+        div[data-testid="stSidebar"] h3 {
+            color: #1D1D1F;
+            letter-spacing: -0.02em;
+        }
+
+        [data-testid="stSidebar"] .stTextInput input,
+        [data-testid="stSidebar"] .stNumberInput input,
+        [data-testid="stSidebar"] .stMultiSelect,
+        [data-testid="stSidebar"] div[data-baseweb="select"] > div {
+            border-radius: 14px;
+            border-color: rgba(0,0,0,0.12);
+            background: #FBFBFD;
+        }
+
+        .kpi-card {
+            background: #FFFFFF;
+            border: 1px solid rgba(0,0,0,0.05);
+            border-radius: 24px;
+            padding: 20px;
+            min-height: 120px;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.04), 0 8px 24px rgba(0,0,0,0.04);
+            transition: all 0.18s ease;
+        }
+
+        .kpi-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.05), 0 12px 30px rgba(0,0,0,0.06);
+        }
+
+        .kpi-label {
+            font-size: 0.82rem;
+            color: #86868B;
+            font-weight: 650;
+            margin-bottom: 8px;
+        }
+
+        .kpi-value {
+            font-size: 2rem;
+            color: #1D1D1F;
+            font-weight: 750;
+            line-height: 1;
+            letter-spacing: -0.045em;
+        }
+
+        .kpi-help {
+            font-size: 0.78rem;
+            color: #86868B;
+            margin-top: 10px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .section-title {
+            font-size: 1.35rem;
+            font-weight: 750;
+            color: #1D1D1F;
+            margin-top: 1rem;
+            margin-bottom: 0.25rem;
+            letter-spacing: -0.035em;
+        }
+
+        .section-subtitle {
+            font-size: 0.9rem;
+            color: #86868B;
+            margin-bottom: 0.85rem;
+        }
+
+        .small-note {
+            font-size: 0.84rem;
+            color: #6E6E73;
+            background: #FFFFFF;
+            border: 1px solid rgba(0,0,0,0.05);
+            border-radius: 18px;
+            padding: 12px 15px;
+            margin-bottom: 0.85rem;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+        }
+
+        div[data-testid="stDataFrame"] {
+            border-radius: 18px;
+            overflow: hidden;
+            border: 1px solid rgba(0,0,0,0.05);
+            background: #FFFFFF;
+        }
+
+        .stButton button,
+        .stDownloadButton button,
+        div[data-testid="stFormSubmitButton"] button {
+            background: #0071E3;
+            color: #FFFFFF;
+            border-radius: 999px;
+            border: none;
+            padding: 0.45rem 1.2rem;
+            font-weight: 650;
+            transition: all 0.15s ease;
+        }
+
+        .stButton button:hover,
+        .stDownloadButton button:hover,
+        div[data-testid="stFormSubmitButton"] button:hover {
+            background: #0077ED;
+            color: #FFFFFF;
+            transform: translateY(-1px);
+        }
+
+        button[data-baseweb="tab"] {
+            border-radius: 999px;
+            height: 42px;
+            padding-left: 18px;
+            padding-right: 18px;
+            font-weight: 650;
+        }
+
+        h1, h2, h3 {
+            color: #1D1D1F;
+            letter-spacing: -0.035em;
+        }
+
+        .stAlert {
+            border-radius: 18px;
+        }
     </style>
     """,
     unsafe_allow_html=True,
@@ -604,8 +734,15 @@ Recent windows include the report date and count backward by valid working days 
 # ============================================================
 # Main app
 # ============================================================
-st.title("Inventory Shortage")
-st.caption("Shortage dashboard for Item Activity Report.")
+st.markdown(
+    """
+    <h2 style="margin-bottom:0; font-weight:750; letter-spacing:-0.045em;">
+        📦 Inventory Dashboard
+    </h2>
+    """,
+    unsafe_allow_html=True,
+)
+st.caption("Inventory shortage monitoring")
 
 if uploaded is None:
     st.info("Upload an Item Activity Report Excel file from the left sidebar to generate the dashboard.")
