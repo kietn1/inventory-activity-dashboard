@@ -470,7 +470,7 @@ def to_excel_bytes(model: dict) -> bytes:
 # Sidebar controls
 # ============================================================
 st.sidebar.title("📦 Inventory Dashboard")
-st.sidebar.caption("Upload Excel file to generate shortage report.")
+st.sidebar.caption("Upload Item Activity Report Excel để tự động build shortage report.")
 
 uploaded = st.sidebar.file_uploader(
     "Drop Excel file here",
@@ -490,21 +490,14 @@ min_usage = st.sidebar.number_input("Minimum Outbound Last 30 Days", min_value=0
 search_text = st.sidebar.text_input("Search SKU / Description", placeholder="Example: SBED, BACKUP SWITCH...")
 
 st.sidebar.divider()
-st.sidebar.markdown("""
-#### Risk Level Notes
+st.sidebar.caption("Logic locked: Official Total row = Ref # Total. Ending Balance row = Activity Date Ending Balance. Qty uses first number before slash.")
 
-- **Critical:** 0–7 days remaining
-- **Warning:** 8–14 days remaining
-- **Watch:** 15–30 days remaining
-- **Healthy:** More than 30 days remaining
-- **No Recent Demand:** Outbound 30D = 0
-""")
 
 # ============================================================
 # Main app
 # ============================================================
 st.title("Inventory Shortage / Prepare Dashboard")
-st.caption("Shortage-focused dashboard for Item Activity Report.")
+st.caption("Professional shortage-focused dashboard for Item Activity Report. CTN is intentionally ignored.")
 
 if uploaded is None:
     st.info("Upload an Item Activity Report Excel file from the left sidebar to generate the dashboard.")
@@ -535,7 +528,7 @@ report_end = model["report_end"]
 windows = model["windows"]
 
 st.markdown(
-    f"<div class='small-note'>Report Range: <b>{fmt_date(report_start)}</b> to <b>{fmt_date(report_end)}</b></div>",
+    f"<div class='small-note'>Report Range: <b>{fmt_date(report_start)}</b> to <b>{fmt_date(report_end)}</b> | Recent windows are calculated from Report End Date.</div>",
     unsafe_allow_html=True,
 )
 
