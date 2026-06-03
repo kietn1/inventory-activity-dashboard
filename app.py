@@ -22,27 +22,88 @@ st.set_page_config(
 st.markdown(
     """
     <style>
-        .main .block-container {padding-top: 1.2rem; padding-bottom: 2rem;}
-        .kpi-card {
-            border: 1px solid #E5E7EB;
-            border-radius: 16px;
-            padding: 18px 18px 14px 18px;
-            background: linear-gradient(180deg, #FFFFFF 0%, #F9FAFB 100%);
-            box-shadow: 0 1px 2px rgba(16, 24, 40, 0.05);
-            min-height: 112px;
+        :root {
+            --bg: #f5f5f7;
+            --card: rgba(255,255,255,0.86);
+            --line: rgba(0,0,0,0.08);
+            --text: #1d1d1f;
+            --muted: #6e6e73;
+            --blue: #007aff;
         }
-        .kpi-label {font-size: 0.84rem; color:#667085; font-weight: 600; margin-bottom: 8px;}
-        .kpi-value {font-size: 1.85rem; color:#101828; font-weight: 800; line-height: 1.1;}
-        .kpi-help {font-size: 0.78rem; color:#98A2B3; margin-top: 8px;}
-        .section-title {font-size:1.18rem; font-weight:800; color:#101828; margin-top: 0.4rem;}
-        .section-subtitle {font-size:0.88rem; color:#667085; margin-bottom: 0.8rem;}
-        .small-note {font-size:0.82rem; color:#667085;}
-        div[data-testid="stDataFrame"] {border-radius: 12px; overflow: hidden;}
+        .stApp { background: var(--bg); }
+        .main .block-container { padding-top: 1.1rem; padding-bottom: 2.4rem; max-width: 1400px; }
+        h1, h2, h3, p, div, span, label {
+            font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Segoe UI", sans-serif;
+        }
+        [data-testid="stSidebar"] {
+            background: rgba(255,255,255,0.72);
+            backdrop-filter: blur(22px);
+            border-right: 1px solid var(--line);
+        }
+        [data-testid="stSidebar"] * { font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif; }
+        .hero-card {
+            border: 1px solid var(--line);
+            border-radius: 28px;
+            padding: 28px 30px;
+            background: rgba(255,255,255,0.78);
+            backdrop-filter: blur(20px);
+            box-shadow: 0 18px 45px rgba(0,0,0,0.06);
+            margin-bottom: 18px;
+        }
+        .hero-title {
+            font-size: 2.35rem;
+            font-weight: 750;
+            letter-spacing: -0.045em;
+            color: var(--text);
+            line-height: 1.04;
+            margin-bottom: 8px;
+        }
+        .hero-subtitle { font-size: 0.98rem; color: var(--muted); letter-spacing: -0.01em; }
+        .kpi-card {
+            border: 1px solid var(--line);
+            border-radius: 22px;
+            padding: 18px 18px 16px 18px;
+            background: var(--card);
+            backdrop-filter: blur(18px);
+            box-shadow: 0 10px 28px rgba(0,0,0,0.045);
+            min-height: 108px;
+        }
+        .kpi-label { font-size: 0.78rem; color: var(--muted); font-weight: 560; margin-bottom: 10px; letter-spacing: -0.01em; }
+        .kpi-value { font-size: 1.85rem; color: var(--text); font-weight: 720; letter-spacing: -0.04em; line-height: 1.05; }
+        .kpi-help { font-size: 0.76rem; color: #8e8e93; margin-top: 9px; letter-spacing: -0.01em; }
+        .section-title { font-size: 1.22rem; font-weight: 720; color: var(--text); letter-spacing: -0.03em; margin-top: 1.2rem; margin-bottom: 0.15rem; }
+        .section-subtitle, .small-note { font-size: 0.86rem; color: var(--muted); margin-bottom: 0.8rem; letter-spacing: -0.01em; }
+        .upload-card {
+            border: 1px solid var(--line);
+            border-radius: 28px;
+            padding: 36px 28px;
+            background: rgba(255,255,255,0.76);
+            backdrop-filter: blur(20px);
+            text-align: center;
+            box-shadow: 0 18px 45px rgba(0,0,0,0.055);
+            margin-top: 22px;
+        }
+        .upload-title { font-size: 1.32rem; font-weight: 720; color: var(--text); letter-spacing: -0.035em; margin-bottom: 8px; }
+        .upload-subtitle { font-size: 0.94rem; color: var(--muted); letter-spacing: -0.01em; }
+        .sidebar-section-label { font-size: 0.70rem; font-weight: 700; color: #86868b; letter-spacing: .08em; text-transform: uppercase; margin-top: 2px; margin-bottom: -6px; }
+        div[data-testid="stDataFrame"] { border-radius: 18px; overflow: hidden; border: 1px solid var(--line); background: rgba(255,255,255,0.85); }
+        .stButton > button, .stDownloadButton > button, button[kind="primary"], button[kind="secondary"] {
+            border-radius: 999px !important;
+            border: 1px solid var(--line) !important;
+            background: rgba(255,255,255,0.84) !important;
+            color: var(--text) !important;
+            box-shadow: 0 4px 14px rgba(0,0,0,0.05) !important;
+            font-weight: 600 !important;
+        }
+        .stButton > button:hover, .stDownloadButton > button:hover { border-color: rgba(0,122,255,0.42) !important; color: var(--blue) !important; }
+        div[data-baseweb="select"] > div, div[data-baseweb="input"] > div, div[data-baseweb="base-input"], input { border-radius: 14px !important; }
+        .stTabs [data-baseweb="tab-list"] { gap: 8px; }
+        .stTabs [data-baseweb="tab"] { border-radius: 999px; padding: 8px 16px; background: rgba(255,255,255,0.52); color: var(--muted); }
+        .stTabs [aria-selected="true"] { background: rgba(255,255,255,0.95) !important; color: var(--text) !important; box-shadow: 0 4px 14px rgba(0,0,0,0.05); }
     </style>
     """,
     unsafe_allow_html=True,
 )
-
 
 # ============================================================
 # Utility functions
@@ -492,6 +553,46 @@ def metric_card(label, value, help_text=""):
     )
 
 
+
+def hero_header(report_start=None, report_end=None, uploaded_name: str = ""):
+    meta = "Upload Excel file to generate shortage report."
+    if report_start is not None and report_end is not None:
+        meta = f"{fmt_date(report_start)} – {fmt_date(report_end)}"
+    st.markdown(
+        f"""
+        <div class="hero-card">
+            <div class="hero-title">Inventory Shortage</div>
+            <div class="hero-subtitle">{meta}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+def executive_summary(critical_count, warning_count, watch_count, recent_30d, report_end):
+    st.markdown(
+        f"""
+        <div class="summary-card">
+            <span>{critical_count:,}</span> critical SKUs need immediate action, 
+            <span>{warning_count:,}</span> warning SKUs need ETA / reserve review, and 
+            <span>{watch_count:,}</span> watch SKUs should be monitored. 
+            Recent 30D outbound is <span>{fmt_num(recent_30d)}</span> pcs based on valid working days through <span>{fmt_date(report_end)}</span>.
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def quality_card(label, value, status="OK"):
+    st.markdown(
+        f"""
+        <div class="quality-card">
+            <div class="quality-label">{label}</div>
+            <div class="quality-value"><span class="quality-ok">✓ {status}</span> · {value}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
 def round_numeric_columns(df: pd.DataFrame) -> pd.DataFrame:
     out = df.copy()
     numeric_cols = out.select_dtypes(include=["number"]).columns
@@ -578,8 +679,9 @@ def show_limited_dataframe(df: pd.DataFrame, height: int = 420, limit: int = 500
 # ============================================================
 # Sidebar controls
 # ============================================================
-st.sidebar.title("📦 Inventory Dashboard")
-st.sidebar.caption("Upload Excel file to generate shortage report.")
+st.sidebar.title("Inventory")
+st.sidebar.caption("Shortage report")
+st.sidebar.markdown('<div class="sidebar-section-label">Upload</div>', unsafe_allow_html=True)
 
 uploaded = st.sidebar.file_uploader(
     "Drop Excel file here",
@@ -588,6 +690,7 @@ uploaded = st.sidebar.file_uploader(
 )
 
 st.sidebar.divider()
+st.sidebar.markdown('<div class="sidebar-section-label">Filters</div>', unsafe_allow_html=True)
 st.sidebar.subheader("Risk Filter")
 with st.sidebar.form("filter_form"):
     show_risks = st.multiselect(
@@ -601,26 +704,30 @@ with st.sidebar.form("filter_form"):
     st.form_submit_button("Apply Filters")
 
 st.sidebar.divider()
-st.sidebar.markdown("""
-#### Risk Level Notes
-
-- **Critical:** 0–7 days remaining
-- **Warning:** 8–14 days remaining
-- **Watch:** 15–30 days remaining
-- **Healthy:** More than 30 days remaining
-- **No Recent Demand:** Outbound 30D = 0
-
-Recent windows include the report date and count backward by valid working days only, excluding Saturdays, Sundays, and US federal holidays. Not Shipped and Cancelled rows are still counted when Qty Out > 0.
+st.sidebar.markdown('<div class="sidebar-section-label">Rules</div>', unsafe_allow_html=True)
+with st.sidebar.expander("Notes", expanded=False):
+    st.markdown("""
+- Critical: 0–7 days
+- Warning: 8–14 days
+- Watch: 15–30 days
+- Avg usage keeps 2 decimals
 """)
 
 # ============================================================
 # Main app
 # ============================================================
-st.title("Inventory Shortage / Prepare Dashboard")
-st.caption("Shortage-focused dashboard for Item Activity Report.")
+hero_header()
 
 if uploaded is None:
-    st.info("Upload an Item Activity Report Excel file from the left sidebar to generate the dashboard.")
+    st.markdown(
+        """
+        <div class="upload-card">
+            <div class="upload-title">Upload Excel file</div>
+            <div class="upload-subtitle">Item Activity Report</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
     st.stop()
 
 try:
@@ -647,11 +754,7 @@ report_start = model["report_start"]
 report_end = model["report_end"]
 windows = model["windows"]
 
-st.markdown(
-    f"<div class='small-note'>Report Range: <b>{fmt_date(report_start)}</b> to <b>{fmt_date(report_end)}</b> | Recent windows use valid working days, including the report date.</div>",
-    unsafe_allow_html=True,
-)
-
+hero_header(report_start, report_end, uploaded.name if uploaded is not None else "")
 # KPI cards
 critical_count = int((sku_df["Risk Level"] == "Critical").sum())
 warning_count = int((sku_df["Risk Level"] == "Warning").sum())
@@ -679,20 +782,20 @@ with k8:
     metric_card("Recent Outbound 14D / 7D", f"{fmt_num(sku_df['Outbound Last 14 Days'].sum())} / {fmt_num(sku_df['Outbound Last 7 Days'].sum())}", "Dated Qty Out rows only")
 
 st.markdown("<div class='section-title'>Shortage Priority List</div>", unsafe_allow_html=True)
-st.markdown("<div class='section-subtitle'>Sorted by risk level, lowest days remaining, and recent outbound demand.</div>", unsafe_allow_html=True)
+st.markdown("<div class='section-subtitle'>Sorted by risk and days remaining.</div>", unsafe_allow_html=True)
 
 priority_cols = [
+    "Risk Level",
     "SKU",
     "Description",
-    "Risk Level",
     "Recommended Action",
+    "Days Remaining",
+    "Forecast Stockout Date",
     "Ending Balance",
     "Outbound Last 30 Days",
     "Outbound Last 14 Days",
     "Outbound Last 7 Days",
     "Avg Daily Usage 30D",
-    "Days Remaining",
-    "Forecast Stockout Date",
     "Last Activity Date",
 ]
 
@@ -700,12 +803,11 @@ priority_display = prepare_display(filtered[priority_cols])
 st.dataframe(priority_display, use_container_width=True, hide_index=True, height=460)
 
 st.download_button(
-    "⬇️ Download processed shortage report",
+    "Download report",
     data=to_excel_bytes(model),
     file_name=f"shortage_dashboard_export_{report_end.strftime('%Y%m%d')}.xlsx",
     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 )
-
 # Tabs
 sku_tab, trend_tab, audit_tab = st.tabs(["SKU Detail", "Trend", "Audit"])
 
