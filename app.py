@@ -4,7 +4,6 @@ from io import BytesIO
 
 import numpy as np
 import pandas as pd
-import plotly.express as px
 import streamlit as st
 from pandas.tseries.holiday import USFederalHolidayCalendar
 
@@ -22,22 +21,24 @@ st.set_page_config(
 st.markdown(
     """
     <style>
-        .main .block-container {padding-top: 1.2rem; padding-bottom: 2rem;}
+        .main .block-container {padding-top: 0.9rem; padding-bottom: 1.4rem; max-width: 1500px;}
+        header, footer {visibility: hidden;}
         .kpi-card {
-            border: 1px solid #E5E7EB;
-            border-radius: 16px;
-            padding: 18px 18px 14px 18px;
-            background: linear-gradient(180deg, #FFFFFF 0%, #F9FAFB 100%);
-            box-shadow: 0 1px 2px rgba(16, 24, 40, 0.05);
-            min-height: 112px;
+            border: 1px solid rgba(0,0,0,0.08);
+            border-radius: 18px;
+            padding: 16px 16px 13px 16px;
+            background: rgba(255,255,255,0.86);
+            box-shadow: 0 6px 24px rgba(16, 24, 40, 0.06);
+            min-height: 104px;
         }
-        .kpi-label {font-size: 0.84rem; color:#667085; font-weight: 600; margin-bottom: 8px;}
-        .kpi-value {font-size: 1.85rem; color:#101828; font-weight: 800; line-height: 1.1;}
-        .kpi-help {font-size: 0.78rem; color:#98A2B3; margin-top: 8px;}
-        .section-title {font-size:1.18rem; font-weight:800; color:#101828; margin-top: 0.4rem;}
-        .section-subtitle {font-size:0.88rem; color:#667085; margin-bottom: 0.8rem;}
-        .small-note {font-size:0.82rem; color:#667085;}
-        div[data-testid="stDataFrame"] {border-radius: 12px; overflow: hidden;}
+        .kpi-label {font-size: 0.82rem; color:#6B7280; font-weight: 650; margin-bottom: 7px;}
+        .kpi-value {font-size: 1.75rem; color:#111827; font-weight: 800; line-height: 1.08; letter-spacing:-0.03em;}
+        .kpi-help {font-size: 0.76rem; color:#9CA3AF; margin-top: 8px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+        .section-title {font-size:1.12rem; font-weight:800; color:#111827; margin-top: 0.3rem;}
+        .section-subtitle {font-size:0.84rem; color:#6B7280; margin-bottom: 0.7rem;}
+        .small-note {font-size:0.81rem; color:#6B7280;}
+        div[data-testid="stDataFrame"] {border-radius: 14px; overflow: hidden;}
+        div[data-testid="stSidebar"] {background:#F8FAFC;}
     </style>
     """,
     unsafe_allow_html=True,
@@ -389,42 +390,29 @@ def build_inventory_model(raw: pd.DataFrame) -> dict:
         np.inf,
     )
 
-    def risk_level(row):
-        ending = row["Ending Balance"]
-        usage_30 = row["Outbound Last 30 Days"]
-        usage_14 = row["Outbound Last 14 Days"]
-        usage_7 = row["Outbound Last 7 Days"]
-        days = row["Days Remaining"]
+    demand_exists = (sku_df["Outbound Last 30 Days"] > 0) | (sku_df["Outbound Last 14 Days"] > 0) | (sku_df["Outbound Last 7 Days"] > 0)
+    conditions = [
+        (sku_df["Ending Balance"] <= 0) & demand_exists,
+        (sku_df["Outbound Last 7 Days"] > 0) & (sku_df["Days Remaining"] <= 7),
+        (sku_df["Outbound Last 14 Days"] > 0) & (sku_df["Days Remaining"] <= 14),
+        (sku_df["Outbound Last 30 Days"] > 0) & (sku_df["Days Remaining"] <= 30),
+    ]
+    sku_df["Risk Level"] = np.select(conditions, ["Critical", "Critical", "Warning", "Watch"], default="Healthy")
+    sku_df["Recommended Action"] = sku_df["Risk Level"].map({
+        "Critical": "Prepare inbound / allocate stock immediately",
+        "Warning": "Review inbound ETA and reserve inventory",
+        "Watch": "Monitor weekly usage and upcoming orders",
+        "Healthy": "No immediate action",
+    })
 
-        if ending <= 0 and (usage_30 > 0 or usage_14 > 0 or usage_7 > 0):
-            return "Critical"
-        if usage_7 > 0 and days <= 7:
-            return "Critical"
-        if usage_14 > 0 and days <= 14:
-            return "Warning"
-        if usage_30 > 0 and days <= 30:
-            return "Watch"
-        return "Healthy"
-
-    def recommended_action(row):
-        risk = row["Risk Level"]
-        if risk == "Critical":
-            return "Prepare inbound / allocate stock immediately"
-        if risk == "Warning":
-            return "Review inbound ETA and reserve inventory"
-        if risk == "Watch":
-            return "Monitor weekly usage and upcoming orders"
-        return "No immediate action"
-
-    sku_df["Risk Level"] = sku_df.apply(risk_level, axis=1)
-    sku_df["Recommended Action"] = sku_df.apply(recommended_action, axis=1)
-
-    def stockout_date(row):
-        if not np.isfinite(row["Days Remaining"]):
+    def stockout_date(days_remaining):
+        if pd.isna(days_remaining) or not np.isfinite(days_remaining):
             return pd.NaT
-        return add_valid_working_days(report_end, row["Days Remaining"], holidays)
+        if days_remaining > 365:
+            return pd.NaT
+        return add_valid_working_days(report_end, days_remaining, holidays)
 
-    sku_df["Forecast Stockout Date"] = sku_df.apply(stockout_date, axis=1)
+    sku_df["Forecast Stockout Date"] = sku_df["Days Remaining"].map(stockout_date)
 
     risk_order = {"Critical": 0, "Warning": 1, "Watch": 2, "Healthy": 3}
     sku_df["Risk Sort"] = sku_df["Risk Level"].map(risk_order).fillna(9)
@@ -544,6 +532,7 @@ def prepare_display(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+@st.cache_data(show_spinner=False)
 def to_excel_bytes(model: dict) -> bytes:
     output = BytesIO()
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
@@ -578,8 +567,8 @@ def show_limited_dataframe(df: pd.DataFrame, height: int = 420, limit: int = 500
 # ============================================================
 # Sidebar controls
 # ============================================================
-st.sidebar.title("📦 Inventory Dashboard")
-st.sidebar.caption("Upload Excel file to generate shortage report.")
+st.sidebar.title("Inventory Dashboard")
+st.sidebar.caption("Fast shortage view")
 
 uploaded = st.sidebar.file_uploader(
     "Drop Excel file here",
@@ -610,14 +599,14 @@ st.sidebar.markdown("""
 - **Healthy:** More than 30 days remaining
 - **No Recent Demand:** Outbound 30D = 0
 
-Recent windows include the report date and count backward by valid working days only, excluding Saturdays, Sundays, and US federal holidays.
+Recent windows include the report date and count backward by valid working days only, excluding Saturdays, Sundays, and US federal holidays. Not Shipped and Cancelled rows are still counted when Qty Out > 0.
 """)
 
 # ============================================================
 # Main app
 # ============================================================
-st.title("Inventory Shortage / Prepare Dashboard")
-st.caption("Shortage-focused dashboard for Item Activity Report.")
+st.title("Inventory Shortage")
+st.caption("Fast, clean shortage dashboard for Item Activity Report.")
 
 if uploaded is None:
     st.info("Upload an Item Activity Report Excel file from the left sidebar to generate the dashboard.")
@@ -697,14 +686,16 @@ priority_cols = [
 ]
 
 priority_display = prepare_display(filtered[priority_cols])
-st.dataframe(priority_display, use_container_width=True, hide_index=True, height=460)
+show_limited_dataframe(priority_display, height=440, limit=250)
 
-st.download_button(
-    "⬇️ Download processed shortage report",
-    data=to_excel_bytes(model),
-    file_name=f"shortage_dashboard_export_{report_end.strftime('%Y%m%d')}.xlsx",
-    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-)
+with st.expander("Export", expanded=False):
+    st.caption("Excel export is generated only when this section is opened, so the dashboard stays fast while filtering.")
+    st.download_button(
+        "⬇️ Download processed shortage report",
+        data=to_excel_bytes(model),
+        file_name=f"shortage_dashboard_export_{report_end.strftime('%Y%m%d')}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
 
 # Tabs
 sku_tab, trend_tab, audit_tab = st.tabs(["SKU Detail", "Trend", "Audit"])
@@ -753,7 +744,7 @@ with sku_tab:
     if not tx_sku.empty:
         tx_sku = tx_sku[tx_sku["SKU"] == selected_sku].sort_values("Activity Date", ascending=False)
         st.subheader("Dated outbound transactions")
-        st.dataframe(display_table(tx_sku), use_container_width=True, hide_index=True, height=360)
+        show_limited_dataframe(tx_sku, height=340, limit=250)
 
 with trend_tab:
     st.subheader("Outbound Trend")
@@ -762,15 +753,11 @@ with trend_tab:
         st.info("No dated outbound transactions found.")
     else:
         trend_plot = trend_df.copy()
-        trend_plot["Activity Date"] = pd.to_datetime(trend_plot["Activity Date"]).dt.strftime("%m/%d/%Y")
-        fig = px.line(trend_plot, x="Activity Date", y="Qty Out", markers=True, title="Daily Outbound Qty")
-        fig.update_layout(height=420, margin=dict(l=10, r=10, t=50, b=10))
-        st.plotly_chart(fig, use_container_width=True)
+        trend_plot["Activity Date"] = pd.to_datetime(trend_plot["Activity Date"])
+        st.line_chart(trend_plot, x="Activity Date", y="Qty Out", height=360, use_container_width=True)
 
-        top_usage = sku_df.sort_values("Outbound Last 30 Days", ascending=False).head(20)
-        fig2 = px.bar(top_usage, x="SKU", y="Outbound Last 30 Days", hover_data=["Description", "Risk Level"], title="Top 20 SKUs by Outbound Last 30 Days")
-        fig2.update_layout(height=440, margin=dict(l=10, r=10, t=50, b=10))
-        st.plotly_chart(fig2, use_container_width=True)
+        top_usage = sku_df.sort_values("Outbound Last 30 Days", ascending=False).head(20)[["SKU", "Outbound Last 30 Days"]]
+        st.bar_chart(top_usage, x="SKU", y="Outbound Last 30 Days", height=360, use_container_width=True)
 
 with audit_tab:
     st.subheader("Audit Checks")
