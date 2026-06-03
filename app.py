@@ -470,6 +470,7 @@ def to_excel_bytes(model: dict) -> bytes:
 # Sidebar controls
 # ============================================================
 st.sidebar.title("📦 Inventory Dashboard")
+st.sidebar.caption("Upload Item Activity Report Excel để tự động build shortage report.")
 
 uploaded = st.sidebar.file_uploader(
     "Drop Excel file here",
@@ -489,6 +490,11 @@ min_usage = st.sidebar.number_input("Minimum Outbound Last 30 Days", min_value=0
 search_text = st.sidebar.text_input("Search SKU / Description", placeholder="Example: SBED, BACKUP SWITCH...")
 
 st.sidebar.divider()
+st.sidebar.info(
+    "Shortage risk is based on recent outbound demand and current ending balance. "
+    "Qty Out is counted before the '/' only, so '2.0000 / 4' = 2 pcs. "
+    "Use the minimum outbound filter to exclude inactive SKUs."
+)
 st.sidebar.caption("Logic locked: Official Total row = Ref # Total. Ending Balance row = Activity Date Ending Balance. Qty uses first number before slash.")
 
 
@@ -496,6 +502,7 @@ st.sidebar.caption("Logic locked: Official Total row = Ref # Total. Ending Balan
 # Main app
 # ============================================================
 st.title("Inventory Shortage / Prepare Dashboard")
+st.caption("Professional shortage-focused dashboard for Item Activity Report. CTN is intentionally ignored.")
 
 if uploaded is None:
     st.info("Upload an Item Activity Report Excel file from the left sidebar to generate the dashboard.")
