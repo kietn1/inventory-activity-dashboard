@@ -143,12 +143,23 @@ def extract_report_range(raw: pd.DataFrame):
     return start_dt, end_dt
 
 
+def business_days_count(start_date, end_date) -> int:
+    days = pd.date_range(start=start_date, end=end_date, freq="D")
+    return int((days.weekday < 5).sum())
+
+
+def add_business_days(start_date, days):
+    if pd.isna(days) or not np.isfinite(days):
+        return pd.NaT
+    return pd.Timestamp(np.busday_offset(pd.to_datetime(start_date).date(), int(np.floor(days)), roll="forward"))
+
+
 def load_excel_to_raw(uploaded_file) -> pd.DataFrame:
     # header=None is important because the file has report title rows above the actual header.
     return pd.read_excel(uploaded_file, sheet_name=0, header=None, dtype=object)
 
 
-def build_inventory_model(raw: pd.DataFrame) -> dict:
+def build_inventory_model(raw: pd.DataFrame, exclude_weekends: bool = False) -> dict:
     header_idx = find_header_row(raw)
     report_start, report_end = extract_report_range(raw)
 
@@ -327,10 +338,13 @@ def build_inventory_model(raw: pd.DataFrame) -> dict:
             sku_df[label] = 0.0
         else:
             mask = (tx_df["Activity Date"] >= start) & (tx_df["Activity Date"] <= end)
+            if exclude_weekends:
+                mask &= tx_df["Activity Date"].dt.weekday < 5
             agg = tx_df.loc[mask].groupby("SKU", as_index=True)["Qty Out"].sum()
             sku_df[label] = sku_df["SKU"].map(agg).fillna(0.0)
 
-    sku_df["Avg Daily Usage 30D"] = sku_df["Outbound Last 30 Days"] / 30
+    usage_days_30d = business_days_count(windows["Outbound Last 30 Days"][0], windows["Outbound Last 30 Days"][1]) if exclude_weekends else 30
+    sku_df["Avg Daily Usage 30D"] = sku_df["Outbound Last 30 Days"] / usage_days_30d
     sku_df["Days Remaining"] = np.where(
         sku_df["Avg Daily Usage 30D"] > 0,
         sku_df["Ending Balance"] / sku_df["Avg Daily Usage 30D"],
@@ -370,6 +384,8 @@ def build_inventory_model(raw: pd.DataFrame) -> dict:
     def stockout_date(row):
         if not np.isfinite(row["Days Remaining"]):
             return pd.NaT
+        if exclude_weekends:
+            return add_business_days(report_end, row["Days Remaining"])
         return report_end + pd.Timedelta(days=int(np.floor(row["Days Remaining"])))
 
     sku_df["Forecast Stockout Date"] = sku_df.apply(stockout_date, axis=1)
@@ -470,7 +486,7 @@ def to_excel_bytes(model: dict) -> bytes:
 # Sidebar controls
 # ============================================================
 st.sidebar.title("📦 Inventory Dashboard")
-st.sidebar.caption("Upload Item Activity Report Excel để tự động build shortage report.")
+st.sidebar.caption("Upload Excel file to generate shortage report.")
 
 uploaded = st.sidebar.file_uploader(
     "Drop Excel file here",
@@ -488,16 +504,24 @@ show_risks = st.sidebar.multiselect(
 
 min_usage = st.sidebar.number_input("Minimum Outbound Last 30 Days", min_value=0, value=0, step=1)
 search_text = st.sidebar.text_input("Search SKU / Description", placeholder="Example: SBED, BACKUP SWITCH...")
+exclude_weekends = st.sidebar.checkbox("Exclude Saturdays and Sundays", value=True)
 
 st.sidebar.divider()
-st.sidebar.caption("Logic locked: Official Total row = Ref # Total. Ending Balance row = Activity Date Ending Balance. Qty uses first number before slash.")
+st.sidebar.markdown("""
+#### Risk Level Notes
 
+- **Critical:** 0–7 days remaining
+- **Warning:** 8–14 days remaining
+- **Watch:** 15–30 days remaining
+- **Healthy:** More than 30 days remaining
+- **No Recent Demand:** Outbound 30D = 0
+""")
 
 # ============================================================
 # Main app
 # ============================================================
 st.title("Inventory Shortage / Prepare Dashboard")
-st.caption("Professional shortage-focused dashboard for Item Activity Report. CTN is intentionally ignored.")
+st.caption("Shortage-focused dashboard for Item Activity Report.")
 
 if uploaded is None:
     st.info("Upload an Item Activity Report Excel file from the left sidebar to generate the dashboard.")
@@ -505,7 +529,7 @@ if uploaded is None:
 
 try:
     raw_df = load_excel_to_raw(uploaded)
-    model = build_inventory_model(raw_df)
+    model = build_inventory_model(raw_df, exclude_weekends=exclude_weekends)
 except Exception as exc:
     st.error("File could not be processed. Please check if this is the correct Item Activity Report format.")
     st.exception(exc)
@@ -528,7 +552,7 @@ report_end = model["report_end"]
 windows = model["windows"]
 
 st.markdown(
-    f"<div class='small-note'>Report Range: <b>{fmt_date(report_start)}</b> to <b>{fmt_date(report_end)}</b> | Recent windows are calculated from Report End Date.</div>",
+    f"<div class='small-note'>Report Range: <b>{fmt_date(report_start)}</b> to <b>{fmt_date(report_end)}</b></div>",
     unsafe_allow_html=True,
 )
 
@@ -682,7 +706,10 @@ with audit_tab:
         if tx.empty:
             st.info("No dated outbound transactions found.")
         else:
-            audit_tx = tx[(tx["Activity Date"] >= start) & (tx["Activity Date"] <= end)].copy()
+            audit_mask = (tx["Activity Date"] >= start) & (tx["Activity Date"] <= end)
+            if exclude_weekends:
+                audit_mask &= tx["Activity Date"].dt.weekday < 5
+            audit_tx = tx[audit_mask].copy()
             st.write(f"Window: **{fmt_date(start)} – {fmt_date(end)}**")
             st.dataframe(audit_tx.sort_values(["SKU", "Activity Date"]), use_container_width=True, hide_index=True, height=520)
     elif audit_choice == "Official Total Rows":
