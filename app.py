@@ -755,31 +755,52 @@ with trend_tab:
 
 with audit_tab:
     st.subheader("Audit Checks")
-    st.caption("Use this tab only to verify calculation sources and official rows.")
+    st.caption("Use this tab to verify recent outbound calculations and official source rows.")
 
-    a1, a2, a3, a4 = st.columns(4)
-    with a1:
+    # Recent outbound summary cards
+    st.markdown("**Recent Outbound Audit**")
+    r1, r2, r3 = st.columns(3)
+    recent_labels = ["Outbound Last 30 Days", "Outbound Last 14 Days", "Outbound Last 7 Days"]
+    recent_card_labels = ["Recent Outbound 30D", "Recent Outbound 14D", "Recent Outbound 7D"]
+    for col, label, card_label in zip([r1, r2, r3], recent_labels, recent_card_labels):
+        start, end = windows[label]
+        valid_dates = model["window_dates"][label]
+        with col:
+            metric_card(
+                card_label,
+                fmt_num(sku_df[label].sum()),
+                f"{fmt_date(start)} - {fmt_date(end)} | {len(valid_dates)} working days",
+            )
+
+    st.markdown("**Source Row Audit**")
+    s1, s2, s3, s4 = st.columns(4)
+    with s1:
         metric_card("Official Total Rows", fmt_num(len(model["official_total_df"])), "Ref # = Total")
-    with a2:
-        metric_card("Official Ending Rows", fmt_num(len(model["official_ending_df"])), "Activity Date = Ending Balance")
-    with a3:
-        metric_card("Not Shipped Rows", fmt_num(len(model["not_shipped_df"])), "Still counted if Qty Out > 0")
-    with a4:
-        metric_card("Cancelled Transactions", fmt_num(len(model["cancelled_df"])), "For review only")
+    with s2:
+        metric_card("Ending Balance Rows", fmt_num(len(model["official_ending_df"])), "Activity Date = Ending Balance")
+    with s3:
+        metric_card("Not Shipped Rows", fmt_num(len(model["not_shipped_df"])), "Counted if Qty Out > 0")
+    with s4:
+        metric_card("Cancelled Transactions", fmt_num(len(model["cancelled_df"])), "Counted if Qty Out > 0")
 
-    audit_choice = st.radio(
-        "Audit table",
-        [
-            "Recent Outbound 30D",
-            "Recent Outbound 14D",
-            "Recent Outbound 7D",
-            "Official Total Rows",
-            "Official Ending Balance Rows",
-            "Not Shipped Rows",
-            "Cancelled Transactions",
-        ],
-        horizontal=True,
-    )
+    st.divider()
+
+    audit_group_col, audit_table_col = st.columns([1, 2])
+    with audit_group_col:
+        audit_group = st.selectbox(
+            "Audit Category",
+            ["Recent Outbound", "Official Source Rows", "Status Rows"],
+        )
+
+    if audit_group == "Recent Outbound":
+        audit_options = ["Recent Outbound 30D", "Recent Outbound 14D", "Recent Outbound 7D"]
+    elif audit_group == "Official Source Rows":
+        audit_options = ["Official Total Rows", "Official Ending Balance Rows"]
+    else:
+        audit_options = ["Not Shipped Rows", "Cancelled Transactions"]
+
+    with audit_table_col:
+        audit_choice = st.selectbox("Audit Table", audit_options)
 
     if audit_choice.startswith("Recent Outbound"):
         label_map = {
@@ -795,7 +816,12 @@ with audit_tab:
         else:
             valid_dates = model["window_dates"][label]
             audit_tx = tx[tx["Activity Date"].isin(valid_dates)].copy()
-            st.write(f"Window: **{fmt_date(start)} – {fmt_date(end)}** | Valid working dates counted: **{len(valid_dates)}**")
+            st.write(
+                f"Window: **{fmt_date(start)} – {fmt_date(end)}** | "
+                f"Valid working dates counted: **{len(valid_dates)}** | "
+                f"Rows counted: **{len(audit_tx):,}** | "
+                f"Qty Out total: **{fmt_num(audit_tx['Qty Out'].sum())}**"
+            )
             st.dataframe(display_table(audit_tx.sort_values(["SKU", "Activity Date"])), use_container_width=True, hide_index=True, height=520)
     elif audit_choice == "Official Total Rows":
         st.dataframe(display_table(model["official_total_df"]), use_container_width=True, hide_index=True, height=520)
