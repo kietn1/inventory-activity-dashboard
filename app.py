@@ -22,184 +22,27 @@ st.set_page_config(
 st.markdown(
     """
     <style>
-        :root {
-            --bg: #f5f5f7;
-            --panel: rgba(255,255,255,0.82);
-            --panel-solid: #ffffff;
-            --line: rgba(60,60,67,0.14);
-            --line-strong: rgba(60,60,67,0.24);
-            --text: #1d1d1f;
-            --muted: #6e6e73;
-            --blue: #0071e3;
-            --shadow: 0 18px 40px rgba(0,0,0,0.06);
-        }
-
-        .stApp {
-            background:
-                radial-gradient(circle at top left, rgba(255,255,255,0.9), transparent 34rem),
-                var(--bg);
-            color: var(--text);
-        }
-
-        .main .block-container {
-            max-width: 1400px;
-            padding-top: 1.2rem;
-            padding-bottom: 2.5rem;
-        }
-
-        h1, h2, h3, p, div, span, label, input, textarea, button {
-            font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Segoe UI", sans-serif !important;
-            letter-spacing: -0.015em;
-        }
-
-        [data-testid="stSidebar"] {
-            background: rgba(255,255,255,0.78);
-            backdrop-filter: blur(24px);
-            border-right: 1px solid var(--line);
-        }
-        [data-testid="stSidebar"] [data-testid="stVerticalBlock"] { gap: 0.55rem; }
-
-        .sidebar-brand {
-            font-size: 1rem;
-            font-weight: 700;
-            color: var(--text);
-            margin: 0.35rem 0 0.8rem 0;
-        }
-        .sidebar-label {
-            font-size: 0.68rem;
-            font-weight: 700;
-            color: var(--muted);
-            letter-spacing: 0.08em;
-            text-transform: uppercase;
-            margin: 0.95rem 0 0.25rem 0;
-        }
-        .top-line {
-            font-size: 0.88rem;
-            color: var(--muted);
-            margin: 0.2rem 0 1rem 0;
-        }
-        .section-title {
-            font-size: 1.05rem;
-            font-weight: 700;
-            color: var(--text);
-            margin: 1.25rem 0 0.65rem 0;
-        }
-
+        .main .block-container {padding-top: 1.2rem; padding-bottom: 2rem;}
         .kpi-card {
-            border: 1px solid var(--line);
-            border-radius: 24px;
-            padding: 18px 18px 16px 18px;
-            background: var(--panel);
-            backdrop-filter: blur(20px);
-            box-shadow: var(--shadow);
-            min-height: 108px;
+            border: 1px solid #E5E7EB;
+            border-radius: 16px;
+            padding: 18px 18px 14px 18px;
+            background: linear-gradient(180deg, #FFFFFF 0%, #F9FAFB 100%);
+            box-shadow: 0 1px 2px rgba(16, 24, 40, 0.05);
+            min-height: 112px;
         }
-        .kpi-label {
-            font-size: 0.78rem;
-            color: var(--muted);
-            font-weight: 600;
-            margin-bottom: 10px;
-        }
-        .kpi-value {
-            font-size: 1.78rem;
-            color: var(--text);
-            font-weight: 750;
-            letter-spacing: -0.045em;
-            line-height: 1.05;
-        }
-        .kpi-help {
-            font-size: 0.74rem;
-            color: #8e8e93;
-            margin-top: 9px;
-        }
-
-        .upload-card {
-            border: 1px solid var(--line);
-            border-radius: 30px;
-            padding: 46px 30px;
-            background: var(--panel);
-            backdrop-filter: blur(20px);
-            box-shadow: var(--shadow);
-            text-align: center;
-            margin-top: 8vh;
-        }
-        .upload-title {
-            font-size: 1.2rem;
-            font-weight: 700;
-            color: var(--text);
-            margin-bottom: 6px;
-        }
-        .upload-subtitle {
-            font-size: 0.9rem;
-            color: var(--muted);
-        }
-
-        div[data-testid="stDataFrame"] {
-            border-radius: 20px;
-            overflow: hidden;
-            border: 1px solid var(--line);
-            background: var(--panel-solid);
-            box-shadow: 0 12px 30px rgba(0,0,0,0.04);
-        }
-
-        .stButton > button,
-        .stDownloadButton > button,
-        button[kind="primary"],
-        button[kind="secondary"] {
-            border-radius: 999px !important;
-            border: 1px solid var(--line-strong) !important;
-            background: var(--panel-solid) !important;
-            color: var(--text) !important;
-            box-shadow: 0 6px 18px rgba(0,0,0,0.06) !important;
-            font-weight: 650 !important;
-        }
-        .stButton > button:hover,
-        .stDownloadButton > button:hover {
-            border-color: rgba(0,113,227,0.45) !important;
-            color: var(--blue) !important;
-        }
-
-        div[data-baseweb="select"] > div,
-        div[data-baseweb="input"] > div,
-        div[data-baseweb="base-input"],
-        input,
-        textarea {
-            border-radius: 16px !important;
-            background: #ffffff !important;
-            border: 1px solid var(--line-strong) !important;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.05) !important;
-        }
-        [data-testid="stSidebar"] div[data-baseweb="select"] > div,
-        [data-testid="stSidebar"] div[data-baseweb="input"] > div,
-        [data-testid="stSidebar"] div[data-baseweb="base-input"] {
-            background: #ffffff !important;
-            border: 1px solid rgba(60,60,67,0.34) !important;
-        }
-        div[data-baseweb="select"] > div:focus-within,
-        div[data-baseweb="input"] > div:focus-within {
-            border-color: rgba(0,113,227,0.70) !important;
-            box-shadow: 0 0 0 4px rgba(0,113,227,0.12) !important;
-        }
-
-        .stTabs [data-baseweb="tab-list"] { gap: 8px; }
-        .stTabs [data-baseweb="tab"] {
-            border-radius: 999px;
-            padding: 8px 16px;
-            background: rgba(255,255,255,0.55);
-            color: var(--muted);
-        }
-        .stTabs [aria-selected="true"] {
-            background: #ffffff !important;
-            color: var(--text) !important;
-            box-shadow: 0 6px 18px rgba(0,0,0,0.055);
-        }
-
-        hr { border-color: var(--line) !important; }
-        .stCaptionContainer, .stMarkdown p { color: var(--muted); }
+        .kpi-label {font-size: 0.84rem; color:#667085; font-weight: 600; margin-bottom: 8px;}
+        .kpi-value {font-size: 1.85rem; color:#101828; font-weight: 800; line-height: 1.1;}
+        .kpi-help {font-size: 0.78rem; color:#98A2B3; margin-top: 8px;}
+        .section-title {font-size:1.18rem; font-weight:800; color:#101828; margin-top: 0.4rem;}
+        .section-subtitle {font-size:0.88rem; color:#667085; margin-bottom: 0.8rem;}
+        .small-note {font-size:0.82rem; color:#667085;}
+        div[data-testid="stDataFrame"] {border-radius: 12px; overflow: hidden;}
     </style>
     """,
     unsafe_allow_html=True,
 )
+
 
 # ============================================================
 # Utility functions
@@ -649,7 +492,6 @@ def metric_card(label, value, help_text=""):
     )
 
 
-
 def round_numeric_columns(df: pd.DataFrame) -> pd.DataFrame:
     out = df.copy()
     numeric_cols = out.select_dtypes(include=["number"]).columns
@@ -727,7 +569,7 @@ def show_limited_dataframe(df: pd.DataFrame, height: int = 420, limit: int = 500
     """Render only the first N rows for faster browser performance."""
     total_rows = len(df)
     if total_rows > limit:
-        st.caption(f"Showing {limit:,} of {total_rows:,} rows.")
+        st.caption(f"Showing first {limit:,} rows out of {total_rows:,} rows for faster loading. Download the export for full data.")
     else:
         st.caption(f"Showing {total_rows:,} rows.")
     st.dataframe(display_table(df.head(limit)), use_container_width=True, hide_index=True, height=height)
@@ -736,51 +578,56 @@ def show_limited_dataframe(df: pd.DataFrame, height: int = 420, limit: int = 500
 # ============================================================
 # Sidebar controls
 # ============================================================
-st.sidebar.markdown('<div class="sidebar-brand">Inventory Dashboard</div>', unsafe_allow_html=True)
+st.sidebar.title("📦 Inventory Dashboard")
+st.sidebar.caption("Upload Excel file to generate shortage report.")
 
-st.sidebar.markdown('<div class="sidebar-label">Upload</div>', unsafe_allow_html=True)
 uploaded = st.sidebar.file_uploader(
-    "Excel file",
+    "Drop Excel file here",
     type=["xlsx", "xls"],
-    help="Item Activity Report Excel file.",
-    label_visibility="collapsed",
+    help="File format tương tự Item Activity Report.",
 )
 
-st.sidebar.markdown('<div class="sidebar-label">Filters</div>', unsafe_allow_html=True)
+st.sidebar.divider()
+st.sidebar.subheader("Risk Filter")
 with st.sidebar.form("filter_form"):
     show_risks = st.multiselect(
-        "Risk",
+        "Risk Level",
         options=["Critical", "Warning", "Watch", "Healthy"],
         default=["Critical", "Warning", "Watch"],
     )
-    min_usage = st.number_input("Min outbound 30D", min_value=0, value=0, step=1)
-    search_text = st.text_input("Search", placeholder="SKU or description")
-    st.form_submit_button("Apply")
 
-st.sidebar.markdown('<div class="sidebar-label">Rules</div>', unsafe_allow_html=True)
-st.sidebar.caption("Critical 0–7 · Warning 8–14 · Watch 15–30")
+    min_usage = st.number_input("Minimum Outbound Last 30 Days", min_value=0, value=0, step=1)
+    search_text = st.text_input("Search SKU / Description", placeholder="Example: SBED, BACKUP SWITCH...")
+    st.form_submit_button("Apply Filters")
+
+st.sidebar.divider()
+st.sidebar.markdown("""
+#### Risk Level Notes
+
+- **Critical:** 0–7 days remaining
+- **Warning:** 8–14 days remaining
+- **Watch:** 15–30 days remaining
+- **Healthy:** More than 30 days remaining
+- **No Recent Demand:** Outbound 30D = 0
+
+Recent windows include the report date and count backward by valid working days only, excluding Saturdays, Sundays, and US federal holidays. Not Shipped and Cancelled rows are still counted when Qty Out > 0.
+""")
 
 # ============================================================
 # Main app
 # ============================================================
+st.title("Inventory Shortage / Prepare Dashboard")
+st.caption("Shortage-focused dashboard for Item Activity Report.")
 
 if uploaded is None:
-    st.markdown(
-        """
-        <div class="upload-card">
-            <div class="upload-title">Drop Excel file</div>
-            <div class="upload-subtitle">Item Activity Report</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    st.info("Upload an Item Activity Report Excel file from the left sidebar to generate the dashboard.")
     st.stop()
 
 try:
     file_bytes = uploaded.getvalue()
     model = process_excel_file(file_bytes)
 except Exception as exc:
-    st.error("File could not be processed.")
+    st.error("File could not be processed. Please check if this is the correct Item Activity Report format.")
     st.exception(exc)
     st.stop()
 
@@ -801,9 +648,10 @@ report_end = model["report_end"]
 windows = model["windows"]
 
 st.markdown(
-    f"<div class='top-meta'><b>{fmt_date(report_start)}</b> – <b>{fmt_date(report_end)}</b></div>",
+    f"<div class='small-note'>Report Range: <b>{fmt_date(report_start)}</b> to <b>{fmt_date(report_end)}</b> | Recent windows use valid working days, including the report date.</div>",
     unsafe_allow_html=True,
 )
+
 # KPI cards
 critical_count = int((sku_df["Risk Level"] == "Critical").sum())
 warning_count = int((sku_df["Risk Level"] == "Warning").sum())
@@ -814,35 +662,37 @@ k1, k2, k3, k4 = st.columns(4)
 with k1:
     metric_card("Total SKUs", fmt_num(len(sku_df)), f"Healthy: {healthy_count:,}")
 with k2:
-    metric_card("Critical SKUs", fmt_num(critical_count), "Immediate action")
+    metric_card("Critical SKUs", fmt_num(critical_count), "Need immediate inventory action")
 with k3:
-    metric_card("Warning SKUs", fmt_num(warning_count), "Review ETA")
+    metric_card("Warning SKUs", fmt_num(warning_count), "Need ETA / reserve review")
 with k4:
-    metric_card("Watch SKUs", fmt_num(watch_count), "Monitor")
+    metric_card("Watch SKUs", fmt_num(watch_count), "Monitor usage trend")
 
 k5, k6, k7, k8 = st.columns(4)
 with k5:
-    metric_card("Ending Balance", fmt_num(sku_df["Ending Balance"].sum()), "Ending balance")
+    metric_card("Ending Balance", fmt_num(sku_df["Ending Balance"].sum()), "From official Ending Balance rows")
 with k6:
-    metric_card("Official Total Outbound", fmt_num(sku_df["Official Total Outbound"].sum()), "Official total")
+    metric_card("Official Total Outbound", fmt_num(sku_df["Official Total Outbound"].sum()), "From official Ref # = Total rows")
 with k7:
     metric_card("Recent Outbound 30D", fmt_num(sku_df["Outbound Last 30 Days"].sum()), f"{fmt_date(windows['Outbound Last 30 Days'][0])} - {fmt_date(windows['Outbound Last 30 Days'][1])}")
 with k8:
-    metric_card("Recent Outbound 14D / 7D", f"{fmt_num(sku_df['Outbound Last 14 Days'].sum())} / {fmt_num(sku_df['Outbound Last 7 Days'].sum())}", "Qty Out")
+    metric_card("Recent Outbound 14D / 7D", f"{fmt_num(sku_df['Outbound Last 14 Days'].sum())} / {fmt_num(sku_df['Outbound Last 7 Days'].sum())}", "Dated Qty Out rows only")
 
-st.markdown("<div class='section-title'>Shortage Priority</div>", unsafe_allow_html=True)
+st.markdown("<div class='section-title'>Shortage Priority List</div>", unsafe_allow_html=True)
+st.markdown("<div class='section-subtitle'>Sorted by risk level, lowest days remaining, and recent outbound demand.</div>", unsafe_allow_html=True)
+
 priority_cols = [
-    "Risk Level",
     "SKU",
     "Description",
+    "Risk Level",
     "Recommended Action",
-    "Days Remaining",
-    "Forecast Stockout Date",
     "Ending Balance",
     "Outbound Last 30 Days",
     "Outbound Last 14 Days",
     "Outbound Last 7 Days",
     "Avg Daily Usage 30D",
+    "Days Remaining",
+    "Forecast Stockout Date",
     "Last Activity Date",
 ]
 
@@ -850,11 +700,12 @@ priority_display = prepare_display(filtered[priority_cols])
 st.dataframe(priority_display, use_container_width=True, hide_index=True, height=460)
 
 st.download_button(
-    "Export",
+    "⬇️ Download processed shortage report",
     data=to_excel_bytes(model),
     file_name=f"shortage_dashboard_export_{report_end.strftime('%Y%m%d')}.xlsx",
     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 )
+
 # Tabs
 sku_tab, trend_tab, audit_tab = st.tabs(["SKU Detail", "Trend", "Audit"])
 
@@ -869,11 +720,11 @@ with sku_tab:
     with d1:
         metric_card("Risk Level", risk_badge_text(selected["Risk Level"]), selected["Recommended Action"])
     with d2:
-        metric_card("Ending Balance", fmt_num(selected["Ending Balance"]), "Ending balance")
+        metric_card("Ending Balance", fmt_num(selected["Ending Balance"]), "Official Ending Balance")
     with d3:
-        metric_card("Days Remaining", fmt_num(selected["Days Remaining"]), "Avg usage")
+        metric_card("Days Remaining", fmt_num(selected["Days Remaining"]), "Based on Avg Daily Usage 30D")
     with d4:
-        metric_card("Forecast Stockout", fmt_date(selected["Forecast Stockout Date"]), "Forecast")
+        metric_card("Forecast Stockout", fmt_date(selected["Forecast Stockout Date"]), "Forecast from report end date")
 
     st.subheader(f"{selected_sku} — {selected['Description']}")
     detail_cols = [
@@ -901,11 +752,11 @@ with sku_tab:
     tx_sku = model["tx_df"]
     if not tx_sku.empty:
         tx_sku = tx_sku[tx_sku["SKU"] == selected_sku].sort_values("Activity Date", ascending=False)
-        st.subheader("Transactions")
+        st.subheader("Dated outbound transactions")
         st.dataframe(display_table(tx_sku), use_container_width=True, hide_index=True, height=360)
 
 with trend_tab:
-    st.subheader("Trend")
+    st.subheader("Outbound Trend")
     trend_df = model["trend_df"]
     if trend_df.empty:
         st.info("No dated outbound transactions found.")
@@ -917,14 +768,16 @@ with trend_tab:
         st.plotly_chart(fig, use_container_width=True)
 
         top_usage = sku_df.sort_values("Outbound Last 30 Days", ascending=False).head(20)
-        fig2 = px.bar(top_usage, x="SKU", y="Outbound Last 30 Days", hover_data=["Description", "Risk Level"], title="Top SKUs by Outbound 30D")
+        fig2 = px.bar(top_usage, x="SKU", y="Outbound Last 30 Days", hover_data=["Description", "Risk Level"], title="Top 20 SKUs by Outbound Last 30 Days")
         fig2.update_layout(height=440, margin=dict(l=10, r=10, t=50, b=10))
         st.plotly_chart(fig2, use_container_width=True)
 
 with audit_tab:
-    st.subheader("Audit")
-        # Recent outbound summary cards
-    st.markdown("**Recent outbound**")
+    st.subheader("Audit Checks")
+    st.caption("Use this tab to verify recent outbound calculations and official source rows.")
+
+    # Recent outbound summary cards
+    st.markdown("**Recent Outbound Audit**")
     r1, r2, r3 = st.columns(3)
     recent_labels = ["Outbound Last 30 Days", "Outbound Last 14 Days", "Outbound Last 7 Days"]
     recent_card_labels = ["Recent Outbound 30D", "Recent Outbound 14D", "Recent Outbound 7D"]
@@ -938,7 +791,7 @@ with audit_tab:
                 f"{fmt_date(start)} - {fmt_date(end)} | {len(valid_dates)} working days",
             )
 
-    st.markdown("**Source rows**")
+    st.markdown("**Source Row Audit**")
     s1, s2, s3, s4 = st.columns(4)
     with s1:
         metric_card("Official Total Rows", fmt_num(len(model["official_total_df"])), "Ref # = Total")
@@ -961,7 +814,7 @@ with audit_tab:
     if audit_group == "Recent Outbound":
         audit_options = ["Recent Outbound 30D", "Recent Outbound 14D", "Recent Outbound 7D"]
     elif audit_group == "Official Source Rows":
-        audit_options = ["Official Total Rows", "Ending balance Rows"]
+        audit_options = ["Official Total Rows", "Official Ending Balance Rows"]
     else:
         audit_options = ["Not Shipped Rows", "Cancelled Transactions"]
 
@@ -984,14 +837,14 @@ with audit_tab:
             audit_tx = tx[tx["Activity Date"].isin(valid_dates)].copy()
             st.write(
                 f"Window: **{fmt_date(start)} – {fmt_date(end)}** | "
-                f"Working days: **{len(valid_dates)}** | "
-                f"Rows: **{len(audit_tx):,}** | "
-                f"Qty Out: **{fmt_num(audit_tx['Qty Out'].sum())}**"
+                f"Valid working dates counted: **{len(valid_dates)}** | "
+                f"Rows counted: **{len(audit_tx):,}** | "
+                f"Qty Out total: **{fmt_num(audit_tx['Qty Out'].sum())}**"
             )
             show_limited_dataframe(audit_tx.sort_values(["SKU", "Activity Date"]), height=420)
     elif audit_choice == "Official Total Rows":
         show_limited_dataframe(model["official_total_df"], height=420)
-    elif audit_choice == "Ending balance Rows":
+    elif audit_choice == "Official Ending Balance Rows":
         show_limited_dataframe(model["official_ending_df"], height=420)
     elif audit_choice == "Not Shipped Rows":
         show_limited_dataframe(model["not_shipped_df"], height=420)
