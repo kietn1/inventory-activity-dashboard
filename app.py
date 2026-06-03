@@ -572,7 +572,7 @@ st.sidebar.title("Inventory Dashboard")
 uploaded = st.sidebar.file_uploader(
     "Drop Excel file here",
     type=["xlsx", "xls"],
-    help="File format tương tự Item Activity Report.",
+    help="File format similar to the Item Activity Report.",
 )
 
 st.sidebar.divider()
