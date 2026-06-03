@@ -490,11 +490,16 @@ min_usage = st.sidebar.number_input("Minimum Outbound Last 30 Days", min_value=0
 search_text = st.sidebar.text_input("Search SKU / Description", placeholder="Example: SBED, BACKUP SWITCH...")
 
 st.sidebar.divider()
-st.sidebar.info(
-    "Shortage risk is based on recent outbound demand and current ending balance. "
-    "Qty Out is counted before the '/' only, so '2.0000 / 4' = 2 pcs. "
-    "Use the minimum outbound filter to exclude inactive SKUs."
-)
+st.sidebar.markdown("""
+#### Risk Level Notes
+
+- **Critical:** 0–7 days remaining
+- **Warning:** 8–14 days remaining
+- **Watch:** 15–30 days remaining
+- **Healthy:** More than 30 days remaining
+- **No Recent Demand:** Outbound 30D = 0
+""")
+
 st.sidebar.caption("Logic locked: Official Total row = Ref # Total. Ending Balance row = Activity Date Ending Balance. Qty uses first number before slash.")
 
 
