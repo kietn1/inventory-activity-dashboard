@@ -144,9 +144,16 @@ def extract_report_range(raw: pd.DataFrame):
     return start_dt, end_dt
 
 
-def load_excel_to_raw(uploaded_file) -> pd.DataFrame:
+@st.cache_data(show_spinner=False)
+def load_excel_to_raw(file_bytes: bytes) -> pd.DataFrame:
     # header=None is important because the file has report title rows above the actual header.
-    return pd.read_excel(uploaded_file, sheet_name=0, header=None, dtype=object)
+    return pd.read_excel(BytesIO(file_bytes), sheet_name=0, header=None, dtype=object)
+
+
+@st.cache_data(show_spinner=False)
+def process_excel_file(file_bytes: bytes) -> dict:
+    raw_df = load_excel_to_raw(file_bytes)
+    return build_inventory_model(raw_df)
 
 
 
@@ -558,6 +565,16 @@ def to_excel_bytes(model: dict) -> bytes:
     return output.getvalue()
 
 
+def show_limited_dataframe(df: pd.DataFrame, height: int = 420, limit: int = 500):
+    """Render only the first N rows for faster browser performance."""
+    total_rows = len(df)
+    if total_rows > limit:
+        st.caption(f"Showing first {limit:,} rows out of {total_rows:,} rows for faster loading. Download the export for full data.")
+    else:
+        st.caption(f"Showing {total_rows:,} rows.")
+    st.dataframe(display_table(df.head(limit)), use_container_width=True, hide_index=True, height=height)
+
+
 # ============================================================
 # Sidebar controls
 # ============================================================
@@ -572,14 +589,16 @@ uploaded = st.sidebar.file_uploader(
 
 st.sidebar.divider()
 st.sidebar.subheader("Risk Filter")
-show_risks = st.sidebar.multiselect(
-    "Risk Level",
-    options=["Critical", "Warning", "Watch", "Healthy"],
-    default=["Critical", "Warning", "Watch"],
-)
+with st.sidebar.form("filter_form"):
+    show_risks = st.multiselect(
+        "Risk Level",
+        options=["Critical", "Warning", "Watch", "Healthy"],
+        default=["Critical", "Warning", "Watch"],
+    )
 
-min_usage = st.sidebar.number_input("Minimum Outbound Last 30 Days", min_value=0, value=0, step=1)
-search_text = st.sidebar.text_input("Search SKU / Description", placeholder="Example: SBED, BACKUP SWITCH...")
+    min_usage = st.number_input("Minimum Outbound Last 30 Days", min_value=0, value=0, step=1)
+    search_text = st.text_input("Search SKU / Description", placeholder="Example: SBED, BACKUP SWITCH...")
+    st.form_submit_button("Apply Filters")
 
 st.sidebar.divider()
 st.sidebar.markdown("""
@@ -605,8 +624,8 @@ if uploaded is None:
     st.stop()
 
 try:
-    raw_df = load_excel_to_raw(uploaded)
-    model = build_inventory_model(raw_df)
+    file_bytes = uploaded.getvalue()
+    model = process_excel_file(file_bytes)
 except Exception as exc:
     st.error("File could not be processed. Please check if this is the correct Item Activity Report format.")
     st.exception(exc)
@@ -822,12 +841,12 @@ with audit_tab:
                 f"Rows counted: **{len(audit_tx):,}** | "
                 f"Qty Out total: **{fmt_num(audit_tx['Qty Out'].sum())}**"
             )
-            st.dataframe(display_table(audit_tx.sort_values(["SKU", "Activity Date"])), use_container_width=True, hide_index=True, height=520)
+            show_limited_dataframe(audit_tx.sort_values(["SKU", "Activity Date"]), height=420)
     elif audit_choice == "Official Total Rows":
-        st.dataframe(display_table(model["official_total_df"]), use_container_width=True, hide_index=True, height=520)
+        show_limited_dataframe(model["official_total_df"], height=420)
     elif audit_choice == "Official Ending Balance Rows":
-        st.dataframe(display_table(model["official_ending_df"]), use_container_width=True, hide_index=True, height=520)
+        show_limited_dataframe(model["official_ending_df"], height=420)
     elif audit_choice == "Not Shipped Rows":
-        st.dataframe(display_table(model["not_shipped_df"]), use_container_width=True, hide_index=True, height=520)
+        show_limited_dataframe(model["not_shipped_df"], height=420)
     elif audit_choice == "Cancelled Transactions":
-        st.dataframe(display_table(model["cancelled_df"]), use_container_width=True, hide_index=True, height=520)
+        show_limited_dataframe(model["cancelled_df"], height=420)
