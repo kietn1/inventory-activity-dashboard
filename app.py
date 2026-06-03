@@ -449,7 +449,7 @@ def build_inventory_model(raw: pd.DataFrame) -> dict:
     }
 
 
-def fmt_num(value, decimals=2):
+def fmt_num(value, decimals=0):
     if value is None or pd.isna(value):
         return "-"
     if value == np.inf:
@@ -489,7 +489,10 @@ def round_numeric_columns(df: pd.DataFrame) -> pd.DataFrame:
     out = df.copy()
     numeric_cols = out.select_dtypes(include=["number"]).columns
     for col in numeric_cols:
-        out[col] = out[col].round(2)
+        if str(col) == "Avg Daily Usage 30D":
+            out[col] = out[col].round(2)
+        else:
+            out[col] = out[col].round(0)
     return out
 
 
@@ -512,13 +515,22 @@ def display_table(df: pd.DataFrame) -> pd.DataFrame:
 def prepare_display(df: pd.DataFrame) -> pd.DataFrame:
     out = df.copy()
     out["Risk Level"] = out["Risk Level"].map(risk_badge_text)
-    for c in ["Ending Balance", "Official Total Outbound", "Outbound Last 30 Days", "Outbound Last 14 Days", "Outbound Last 7 Days"]:
+    integer_metric_cols = [
+        "Ending Balance",
+        "Official Total Inbound",
+        "Official Total Outbound",
+        "Outbound Last 30 Days",
+        "Outbound Last 14 Days",
+        "Outbound Last 7 Days",
+        "Days Remaining",
+        "Official Total Row",
+        "Official Ending Row",
+    ]
+    for c in integer_metric_cols:
         if c in out.columns:
-                out[c] = out[c].round(2)
+            out[c] = out[c].replace(np.inf, np.nan).round(0).astype("Int64")
     if "Avg Daily Usage 30D" in out.columns:
         out["Avg Daily Usage 30D"] = out["Avg Daily Usage 30D"].round(2)
-    if "Days Remaining" in out.columns:
-        out["Days Remaining"] = out["Days Remaining"].replace(np.inf, np.nan).round(2)
     for c in ["Forecast Stockout Date", "Last Activity Date"]:
         if c in out.columns:
             out[c] = pd.to_datetime(out[c], errors="coerce").dt.strftime("%m/%d/%Y").replace("NaT", "")
@@ -539,7 +551,10 @@ def to_excel_bytes(model: dict) -> bytes:
             for row in worksheet.iter_rows(min_row=2):
                 for cell in row:
                     if isinstance(cell.value, (int, float)) and not isinstance(cell.value, bool):
-                        cell.number_format = '#,##0.00'
+                        if worksheet.cell(row=1, column=cell.column).value == 'Avg Daily Usage 30D':
+                            cell.number_format = '#,##0.00'
+                        else:
+                            cell.number_format = '#,##0'
     return output.getvalue()
 
 
@@ -688,7 +703,7 @@ with sku_tab:
     with d2:
         metric_card("Ending Balance", fmt_num(selected["Ending Balance"]), "Official Ending Balance")
     with d3:
-        metric_card("Days Remaining", fmt_num(selected["Days Remaining"], 2), "Based on Avg Daily Usage 30D")
+        metric_card("Days Remaining", fmt_num(selected["Days Remaining"]), "Based on Avg Daily Usage 30D")
     with d4:
         metric_card("Forecast Stockout", fmt_date(selected["Forecast Stockout Date"]), "Forecast from report end date")
 
@@ -707,7 +722,10 @@ with sku_tab:
     detail = selected[detail_cols].to_frame("Value")
     detail["Value"] = detail.apply(
         lambda r: fmt_date(r["Value"]) if "date" in str(r.name).lower()
-        else (fmt_num(r["Value"], 2) if isinstance(r["Value"], (int, float, np.integer, np.floating)) and np.isfinite(r["Value"]) else r["Value"]),
+        else (
+            fmt_num(r["Value"], 2) if str(r.name) == "Avg Daily Usage 30D"
+            else (fmt_num(r["Value"]) if isinstance(r["Value"], (int, float, np.integer, np.floating)) and np.isfinite(r["Value"]) else r["Value"])
+        ),
         axis=1,
     )
     st.dataframe(detail, use_container_width=True)
