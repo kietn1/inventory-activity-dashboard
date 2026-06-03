@@ -606,7 +606,7 @@ Recent windows include the report date and count backward by valid working days 
 # Main app
 # ============================================================
 st.title("Inventory Shortage")
-st.caption("Fast, clean shortage dashboard for Item Activity Report.")
+st.caption("Shortage dashboard for Item Activity Report.")
 
 if uploaded is None:
     st.info("Upload an Item Activity Report Excel file from the left sidebar to generate the dashboard.")
