@@ -567,7 +567,7 @@ def show_limited_dataframe(df: pd.DataFrame, height: int = 420, limit: int = 500
 # ============================================================
 # Sidebar controls
 # ============================================================
-st.sidebar.title("Inventory Dashboard")
+st.sidebar.title("📦 Inventory Dashboard")
 
 uploaded = st.sidebar.file_uploader(
     "Drop Excel file here",
