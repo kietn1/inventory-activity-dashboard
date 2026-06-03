@@ -280,10 +280,50 @@ st.markdown(
             font-weight: 650;
         }
 
+        /* Cleaner sidebar form controls */
+        [data-testid="stSidebar"] div[data-testid="stForm"] {
+            background: #FFFFFF;
+            border: 1px solid rgba(0,0,0,0.07);
+            border-radius: 22px;
+            padding: 14px 14px 16px 14px;
+            box-shadow: 0 8px 26px rgba(0,0,0,0.04);
+        }
+
         [data-testid="stSidebar"] label p {
             font-size: 0.80rem;
             font-weight: 650;
             color: #1D1D1F;
+        }
+
+        .filter-caption {
+            font-size: 0.80rem;
+            font-weight: 740;
+            color: #1D1D1F;
+            margin: 2px 0 7px 0;
+        }
+
+        [data-testid="stSidebar"] div[data-testid="stCheckbox"] {
+            background: #F8F8FA;
+            border: 1px solid rgba(0,0,0,0.055);
+            border-radius: 14px;
+            padding: 7px 10px;
+            margin-bottom: 6px;
+        }
+
+        [data-testid="stSidebar"] div[data-testid="stCheckbox"] label {
+            min-height: 22px;
+        }
+
+        [data-testid="stSidebar"] div[data-testid="stCheckbox"] p {
+            font-size: 0.82rem;
+            font-weight: 650;
+            color: #1D1D1F;
+        }
+
+        [data-testid="stSidebar"] input[type="text"],
+        [data-testid="stSidebar"] input[type="number"] {
+            border-radius: 14px;
+            background: #FFFFFF;
         }
 
         [data-testid="stSidebar"] hr {
@@ -865,11 +905,25 @@ st.sidebar.markdown(
 
 st.sidebar.markdown('<div class="sidebar-section-label">Filters</div>', unsafe_allow_html=True)
 with st.sidebar.form("filter_form"):
-    show_risks = st.multiselect(
-        "Risk Level",
-        options=["Critical", "Warning", "Watch", "Healthy"],
-        default=["Critical", "Warning", "Watch"],
-    )
+    st.markdown('<div class="filter-caption">Risk Level</div>', unsafe_allow_html=True)
+
+    risk_col_1, risk_col_2 = st.columns(2)
+    with risk_col_1:
+        critical_selected = st.checkbox("🔴 Critical", value=True)
+        watch_selected = st.checkbox("🟡 Watch", value=True)
+    with risk_col_2:
+        warning_selected = st.checkbox("🟠 Warning", value=True)
+        healthy_selected = st.checkbox("🟢 Healthy", value=False)
+
+    show_risks = []
+    if critical_selected:
+        show_risks.append("Critical")
+    if warning_selected:
+        show_risks.append("Warning")
+    if watch_selected:
+        show_risks.append("Watch")
+    if healthy_selected:
+        show_risks.append("Healthy")
 
     min_usage = st.number_input("Minimum Outbound 30D", min_value=0, value=0, step=1)
     search_text = st.text_input("Search SKU / Description", placeholder="Example: SBED, backup switch")
