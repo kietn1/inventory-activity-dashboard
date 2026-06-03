@@ -12,7 +12,7 @@ from pandas.tseries.holiday import USFederalHolidayCalendar
 # Streamlit page setup
 # ============================================================
 st.set_page_config(
-    page_title="Inventory Shortage Dashboard",
+    page_title="Inventory Dashboard",
     page_icon="📦",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -21,24 +21,293 @@ st.set_page_config(
 st.markdown(
     """
     <style>
-        .main .block-container {padding-top: 0.9rem; padding-bottom: 1.4rem; max-width: 1500px;}
-        header, footer {visibility: hidden;}
-        .kpi-card {
-            border: 1px solid rgba(0,0,0,0.08);
-            border-radius: 18px;
-            padding: 16px 16px 13px 16px;
-            background: rgba(255,255,255,0.86);
-            box-shadow: 0 6px 24px rgba(16, 24, 40, 0.06);
-            min-height: 104px;
+        html, body, [class*="css"] {
+            font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", sans-serif;
         }
-        .kpi-label {font-size: 0.82rem; color:#6B7280; font-weight: 650; margin-bottom: 7px;}
-        .kpi-value {font-size: 1.75rem; color:#111827; font-weight: 800; line-height: 1.08; letter-spacing:-0.03em;}
-        .kpi-help {font-size: 0.76rem; color:#9CA3AF; margin-top: 8px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
-        .section-title {font-size:1.12rem; font-weight:800; color:#111827; margin-top: 0.3rem;}
-        .section-subtitle {font-size:0.84rem; color:#6B7280; margin-bottom: 0.7rem;}
-        .small-note {font-size:0.81rem; color:#6B7280;}
-        div[data-testid="stDataFrame"] {border-radius: 14px; overflow: hidden;}
-        div[data-testid="stSidebar"] {background:#F8FAFC;}
+
+        .stApp {
+            background: #F5F5F7;
+            color: #1D1D1F;
+        }
+
+        .main .block-container {
+            padding-top: 0.75rem;
+            padding-bottom: 2rem;
+            max-width: 1450px;
+        }
+
+        header, footer {
+            visibility: hidden;
+        }
+
+        div[data-testid="stSidebar"] {
+            background: #FFFFFF;
+            border-right: 1px solid rgba(0,0,0,0.06);
+        }
+
+        div[data-testid="stSidebar"] h1,
+        div[data-testid="stSidebar"] h2,
+        div[data-testid="stSidebar"] h3 {
+            color: #1D1D1F;
+            letter-spacing: -0.02em;
+        }
+
+        [data-testid="stSidebar"] .stTextInput input,
+        [data-testid="stSidebar"] .stNumberInput input,
+        [data-testid="stSidebar"] .stMultiSelect,
+        [data-testid="stSidebar"] div[data-baseweb="select"] > div {
+            border-radius: 14px;
+            border-color: rgba(0,0,0,0.12);
+            background: #FBFBFD;
+        }
+
+        .kpi-card {
+            background: #FFFFFF;
+            border: 1px solid rgba(0,0,0,0.05);
+            border-radius: 24px;
+            padding: 20px;
+            min-height: 120px;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.04), 0 8px 24px rgba(0,0,0,0.04);
+            transition: all 0.18s ease;
+        }
+
+        .kpi-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.05), 0 12px 30px rgba(0,0,0,0.06);
+        }
+
+        .kpi-label {
+            font-size: 0.82rem;
+            color: #86868B;
+            font-weight: 650;
+            margin-bottom: 8px;
+        }
+
+        .kpi-value {
+            font-size: 2rem;
+            color: #1D1D1F;
+            font-weight: 750;
+            line-height: 1;
+            letter-spacing: -0.045em;
+        }
+
+        .kpi-help {
+            font-size: 0.78rem;
+            color: #86868B;
+            margin-top: 10px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .section-title {
+            font-size: 1.35rem;
+            font-weight: 750;
+            color: #1D1D1F;
+            margin-top: 1rem;
+            margin-bottom: 0.25rem;
+            letter-spacing: -0.035em;
+        }
+
+        .section-subtitle {
+            font-size: 0.9rem;
+            color: #86868B;
+            margin-bottom: 0.85rem;
+        }
+
+        .small-note {
+            font-size: 0.84rem;
+            color: #6E6E73;
+            background: #FFFFFF;
+            border: 1px solid rgba(0,0,0,0.05);
+            border-radius: 18px;
+            padding: 12px 15px;
+            margin-bottom: 0.85rem;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+        }
+
+        div[data-testid="stDataFrame"] {
+            border-radius: 18px;
+            overflow: hidden;
+            border: 1px solid rgba(0,0,0,0.05);
+            background: #FFFFFF;
+        }
+
+        .stButton button,
+        .stDownloadButton button,
+        div[data-testid="stFormSubmitButton"] button {
+            background: #0071E3;
+            color: #FFFFFF;
+            border-radius: 999px;
+            border: none;
+            padding: 0.45rem 1.2rem;
+            font-weight: 650;
+            transition: all 0.15s ease;
+        }
+
+        .stButton button:hover,
+        .stDownloadButton button:hover,
+        div[data-testid="stFormSubmitButton"] button:hover {
+            background: #0077ED;
+            color: #FFFFFF;
+            transform: translateY(-1px);
+        }
+
+        button[data-baseweb="tab"] {
+            border-radius: 999px;
+            height: 42px;
+            padding-left: 18px;
+            padding-right: 18px;
+            font-weight: 650;
+        }
+
+        h1, h2, h3 {
+            color: #1D1D1F;
+            letter-spacing: -0.035em;
+        }
+
+        .stAlert {
+            border-radius: 18px;
+        }
+
+        /* Apple-style sidebar */
+        div[data-testid="stSidebar"] > div:first-child {
+            padding-top: 1.05rem;
+        }
+
+        .sidebar-hero {
+            background: linear-gradient(180deg, #FFFFFF 0%, #F5F5F7 100%);
+            border: 1px solid rgba(0,0,0,0.06);
+            border-radius: 24px;
+            padding: 18px 16px;
+            margin: 0 0 16px 0;
+            box-shadow: 0 8px 28px rgba(0,0,0,0.045);
+        }
+
+        .sidebar-icon {
+            width: 42px;
+            height: 42px;
+            border-radius: 13px;
+            background: #0071E3;
+            color: #FFFFFF;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.35rem;
+            margin-bottom: 12px;
+            box-shadow: 0 8px 20px rgba(0,113,227,0.22);
+        }
+
+        .sidebar-title {
+            font-size: 1.22rem;
+            font-weight: 780;
+            color: #1D1D1F;
+            letter-spacing: -0.045em;
+            line-height: 1.05;
+        }
+
+        .sidebar-subtitle {
+            font-size: 0.78rem;
+            color: #86868B;
+            margin-top: 6px;
+            line-height: 1.35;
+        }
+
+        .sidebar-section-label {
+            font-size: 0.72rem;
+            font-weight: 760;
+            color: #6E6E73;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            margin: 18px 0 8px 2px;
+        }
+
+        .sidebar-card {
+            background: #F5F5F7;
+            border: 1px solid rgba(0,0,0,0.055);
+            border-radius: 20px;
+            padding: 14px 14px 12px 14px;
+            margin-bottom: 14px;
+        }
+
+        .sidebar-help {
+            color: #86868B;
+            font-size: 0.76rem;
+            line-height: 1.35;
+            margin-top: 8px;
+        }
+
+        .risk-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 10px;
+            padding: 7px 0;
+            border-bottom: 1px solid rgba(0,0,0,0.045);
+            font-size: 0.80rem;
+            color: #1D1D1F;
+        }
+
+        .risk-row:last-child {
+            border-bottom: none;
+        }
+
+        .risk-pill {
+            border-radius: 999px;
+            padding: 3px 9px;
+            font-size: 0.72rem;
+            font-weight: 720;
+            white-space: nowrap;
+        }
+
+        .pill-critical {background: rgba(255,59,48,0.12); color: #B42318;}
+        .pill-warning {background: rgba(255,149,0,0.15); color: #B54708;}
+        .pill-watch {background: rgba(255,214,10,0.22); color: #7A5C00;}
+        .pill-healthy {background: rgba(52,199,89,0.13); color: #027A48;}
+
+        [data-testid="stSidebar"] section[data-testid="stFileUploaderDropzone"] {
+            background: #FFFFFF;
+            border: 1.5px dashed rgba(0,113,227,0.26);
+            border-radius: 18px;
+            padding: 14px;
+        }
+
+        [data-testid="stSidebar"] section[data-testid="stFileUploaderDropzone"] button {
+            border-radius: 999px;
+            background: #0071E3;
+            color: #FFFFFF;
+            border: none;
+            font-weight: 650;
+        }
+
+        [data-testid="stSidebar"] label p {
+            font-size: 0.80rem;
+            font-weight: 650;
+            color: #1D1D1F;
+        }
+
+        [data-testid="stSidebar"] hr {
+            margin: 0.9rem 0;
+            border-color: rgba(0,0,0,0.055);
+        }
+
+        div[data-testid="stExpander"] {
+            background: #FFFFFF;
+            border: 1px solid rgba(0,0,0,0.05);
+            border-radius: 18px;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+        }
+
+        div[data-baseweb="select"] > div,
+        .stSelectbox div[data-baseweb="select"] > div {
+            border-radius: 14px;
+            background: #FFFFFF;
+        }
+
+        .stCaption, [data-testid="stCaptionContainer"] {
+            color: #86868B;
+        }
+
     </style>
     """,
     unsafe_allow_html=True,
@@ -236,7 +505,7 @@ def build_inventory_model(raw: pd.DataFrame) -> dict:
                     "SKU": current_sku,
                     "Description": current_desc,
                     "Official Total Inbound": 0.0,
-                    "Official Total Outbound": 0.0,
+                    "Total Outbound": 0.0,
                     "Ending Balance": 0.0,
                     "Official Ending Row": None,
                     "Official Total Row": None,
@@ -255,7 +524,7 @@ def build_inventory_model(raw: pd.DataFrame) -> dict:
                 "SKU": current_sku,
                 "Description": current_desc,
                 "Official Total Inbound": 0.0,
-                "Official Total Outbound": 0.0,
+                "Total Outbound": 0.0,
                 "Ending Balance": 0.0,
                 "Official Ending Row": None,
                 "Official Total Row": None,
@@ -280,7 +549,7 @@ def build_inventory_model(raw: pd.DataFrame) -> dict:
         # Official total row must be Ref # = Total, not Activity Date.
         if ref_text.lower() == "total":
             sku_records[current_sku]["Official Total Inbound"] = qty_in
-            sku_records[current_sku]["Official Total Outbound"] = qty_out
+            sku_records[current_sku]["Total Outbound"] = qty_out
             sku_records[current_sku]["Official Total Row"] = excel_row_num + 1
             official_total_rows.append(
                 {
@@ -289,7 +558,7 @@ def build_inventory_model(raw: pd.DataFrame) -> dict:
                     "Description": sku_records[current_sku]["Description"],
                     "Ref #": ref_text,
                     "Official Total Inbound": qty_in,
-                    "Official Total Outbound": qty_out,
+                    "Total Outbound": qty_out,
                     "Balance": balance,
                 }
             )
@@ -513,7 +782,7 @@ def prepare_display(df: pd.DataFrame) -> pd.DataFrame:
     integer_metric_cols = [
         "Ending Balance",
         "Official Total Inbound",
-        "Official Total Outbound",
+        "Total Outbound",
         "Outbound Last 30 Days",
         "Outbound Last 14 Days",
         "Outbound Last 7 Days",
@@ -567,16 +836,34 @@ def show_limited_dataframe(df: pd.DataFrame, height: int = 420, limit: int = 500
 # ============================================================
 # Sidebar controls
 # ============================================================
-st.sidebar.title("📦 Inventory Dashboard")
-
-uploaded = st.sidebar.file_uploader(
-    "Drop Excel file here",
-    type=["xlsx", "xls"],
-    help="File format similar to the Item Activity Report.",
+st.sidebar.markdown(
+    """
+    <div class="sidebar-hero">
+        <div class="sidebar-icon">📦</div>
+        <div class="sidebar-title">Inventory Dashboard</div>
+        <div class="sidebar-subtitle">Shortage priority, usage trend, and source-row audit in one clean workspace.</div>
+    </div>
+    """,
+    unsafe_allow_html=True,
 )
 
-st.sidebar.divider()
-st.sidebar.subheader("Risk Filter")
+st.sidebar.markdown('<div class="sidebar-section-label">Source File</div>', unsafe_allow_html=True)
+uploaded = st.sidebar.file_uploader(
+    "Upload Item Activity Report",
+    type=["xlsx", "xls"],
+    help="File format similar to the Item Activity Report.",
+    label_visibility="collapsed",
+)
+st.sidebar.markdown(
+    """
+    <div class="sidebar-help">
+        Drop the Excel report here. The dashboard will calculate shortage risk automatically.
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+
+st.sidebar.markdown('<div class="sidebar-section-label">Filters</div>', unsafe_allow_html=True)
 with st.sidebar.form("filter_form"):
     show_risks = st.multiselect(
         "Risk Level",
@@ -584,31 +871,41 @@ with st.sidebar.form("filter_form"):
         default=["Critical", "Warning", "Watch"],
     )
 
-    min_usage = st.number_input("Minimum Outbound Last 30 Days", min_value=0, value=0, step=1)
-    search_text = st.text_input("Search SKU / Description", placeholder="Example: SBED, BACKUP SWITCH...")
+    min_usage = st.number_input("Minimum Outbound 30D", min_value=0, value=0, step=1)
+    search_text = st.text_input("Search SKU / Description", placeholder="Example: SBED, backup switch")
     st.form_submit_button("Apply Filters")
 
-st.sidebar.divider()
-st.sidebar.markdown("""
-#### Risk Level Notes
-
-- **Critical:** 0–7 days remaining
-- **Warning:** 8–14 days remaining
-- **Watch:** 15–30 days remaining
-- **Healthy:** More than 30 days remaining
-- **No Recent Demand:** Outbound 30D = 0
-
-Recent windows include the report date and count backward by valid working days only, excluding Saturdays, Sundays, and US federal holidays.
-""")
+st.sidebar.markdown('<div class="sidebar-section-label">Risk Guide</div>', unsafe_allow_html=True)
+st.sidebar.markdown(
+    """
+    <div class="sidebar-card">
+        <div class="risk-row"><span>0–7 days remaining</span><span class="risk-pill pill-critical">Critical</span></div>
+        <div class="risk-row"><span>8–14 days remaining</span><span class="risk-pill pill-warning">Warning</span></div>
+        <div class="risk-row"><span>15–30 days remaining</span><span class="risk-pill pill-watch">Watch</span></div>
+        <div class="risk-row"><span>More than 30 days</span><span class="risk-pill pill-healthy">Healthy</span></div>
+    </div>
+    <div class="sidebar-help">
+        Recent windows count valid working days only, excluding weekends and US federal holidays.
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
 
 # ============================================================
 # Main app
 # ============================================================
-st.title("Inventory Shortage")
-st.caption("Shortage dashboard for Item Activity Report.")
+st.markdown(
+    """
+    <h2 style="margin-bottom:0; font-weight:750; letter-spacing:-0.045em;">
+        📦 Inventory Dashboard
+    </h2>
+    """,
+    unsafe_allow_html=True,
+)
+st.caption("Shortage priority, usage trend, and audit in one clean dashboard.")
 
 if uploaded is None:
-    st.info("Upload an Item Activity Report Excel file from the left sidebar to generate the dashboard.")
+    st.info("Upload an Item Activity Report Excel file from the sidebar to generate the dashboard.")
     st.stop()
 
 try:
@@ -650,21 +947,21 @@ k1, k2, k3, k4 = st.columns(4)
 with k1:
     metric_card("Total SKUs", fmt_num(len(sku_df)), f"Healthy: {healthy_count:,}")
 with k2:
-    metric_card("Critical SKUs", fmt_num(critical_count), "Need immediate inventory action")
+    metric_card("Critical", fmt_num(critical_count), "Need immediate inventory action")
 with k3:
-    metric_card("Warning SKUs", fmt_num(warning_count), "Need ETA / reserve review")
+    metric_card("Warning", fmt_num(warning_count), "Need ETA / reserve review")
 with k4:
-    metric_card("Watch SKUs", fmt_num(watch_count), "Monitor usage trend")
+    metric_card("Watch", fmt_num(watch_count), "Monitor usage trend")
 
 k5, k6, k7, k8 = st.columns(4)
 with k5:
     metric_card("Ending Balance", fmt_num(sku_df["Ending Balance"].sum()), "From official Ending Balance rows")
 with k6:
-    metric_card("Official Total Outbound", fmt_num(sku_df["Official Total Outbound"].sum()), "From official Ref # = Total rows")
+    metric_card("Total Outbound", fmt_num(sku_df["Total Outbound"].sum()), "From official Ref # = Total rows")
 with k7:
-    metric_card("Recent Outbound 30D", fmt_num(sku_df["Outbound Last 30 Days"].sum()), f"{fmt_date(windows['Outbound Last 30 Days'][0])} - {fmt_date(windows['Outbound Last 30 Days'][1])}")
+    metric_card("Outbound 30D", fmt_num(sku_df["Outbound Last 30 Days"].sum()), f"{fmt_date(windows['Outbound Last 30 Days'][0])} - {fmt_date(windows['Outbound Last 30 Days'][1])}")
 with k8:
-    metric_card("Recent Outbound 14D / 7D", f"{fmt_num(sku_df['Outbound Last 14 Days'].sum())} / {fmt_num(sku_df['Outbound Last 7 Days'].sum())}", "Dated Qty Out rows only")
+    metric_card("Outbound 14D / 7D", f"{fmt_num(sku_df['Outbound Last 14 Days'].sum())} / {fmt_num(sku_df['Outbound Last 7 Days'].sum())}", "Dated Qty Out rows only")
 
 st.markdown("<div class='section-title'>Shortage Priority List</div>", unsafe_allow_html=True)
 st.markdown("<div class='section-subtitle'>Sorted by risk level, lowest days remaining, and recent outbound demand.</div>", unsafe_allow_html=True)
@@ -687,7 +984,7 @@ priority_cols = [
 priority_display = prepare_display(filtered[priority_cols])
 show_limited_dataframe(priority_display, height=440, limit=250)
 
-with st.expander("Export", expanded=False):
+with st.expander("Export Report", expanded=False):
     st.caption("Excel export is generated only when this section is opened, so the dashboard stays fast while filtering.")
     st.download_button(
         "⬇️ Download processed shortage report",
@@ -697,7 +994,7 @@ with st.expander("Export", expanded=False):
     )
 
 # Tabs
-sku_tab, trend_tab, audit_tab = st.tabs(["SKU Detail", "Trend", "Audit"])
+sku_tab, trend_tab, audit_tab = st.tabs(["SKU Detail", "Usage Trend", "Audit Check"])
 
 with sku_tab:
     left, right = st.columns([1, 2])
@@ -714,12 +1011,12 @@ with sku_tab:
     with d3:
         metric_card("Days Remaining", fmt_num(selected["Days Remaining"]), "Based on Avg Daily Usage 30D")
     with d4:
-        metric_card("Forecast Stockout", fmt_date(selected["Forecast Stockout Date"]), "Forecast from report end date")
+        metric_card("Stockout Date", fmt_date(selected["Forecast Stockout Date"]), "Forecast from report end date")
 
     st.subheader(f"{selected_sku} — {selected['Description']}")
     detail_cols = [
         "Official Total Inbound",
-        "Official Total Outbound",
+        "Total Outbound",
         "Outbound Last 30 Days",
         "Outbound Last 14 Days",
         "Outbound Last 7 Days",
@@ -766,7 +1063,7 @@ with audit_tab:
     st.markdown("**Recent Outbound Audit**")
     r1, r2, r3 = st.columns(3)
     recent_labels = ["Outbound Last 30 Days", "Outbound Last 14 Days", "Outbound Last 7 Days"]
-    recent_card_labels = ["Recent Outbound 30D", "Recent Outbound 14D", "Recent Outbound 7D"]
+    recent_card_labels = ["Outbound 30D", "Recent Outbound 14D", "Recent Outbound 7D"]
     for col, label, card_label in zip([r1, r2, r3], recent_labels, recent_card_labels):
         start, end = windows[label]
         valid_dates = model["window_dates"][label]
@@ -798,7 +1095,7 @@ with audit_tab:
         )
 
     if audit_group == "Recent Outbound":
-        audit_options = ["Recent Outbound 30D", "Recent Outbound 14D", "Recent Outbound 7D"]
+        audit_options = ["Outbound 30D", "Recent Outbound 14D", "Recent Outbound 7D"]
     elif audit_group == "Official Source Rows":
         audit_options = ["Official Total Rows", "Official Ending Balance Rows"]
     else:
@@ -809,7 +1106,7 @@ with audit_tab:
 
     if audit_choice.startswith("Recent Outbound"):
         label_map = {
-            "Recent Outbound 30D": "Outbound Last 30 Days",
+            "Outbound 30D": "Outbound Last 30 Days",
             "Recent Outbound 14D": "Outbound Last 14 Days",
             "Recent Outbound 7D": "Outbound Last 7 Days",
         }
