@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 import plotly.express as px
 import streamlit as st
+from pandas.tseries.holiday import USFederalHolidayCalendar
 
 
 # ============================================================
@@ -146,6 +147,48 @@ def extract_report_range(raw: pd.DataFrame):
 def load_excel_to_raw(uploaded_file) -> pd.DataFrame:
     # header=None is important because the file has report title rows above the actual header.
     return pd.read_excel(uploaded_file, sheet_name=0, header=None, dtype=object)
+
+
+
+def us_holidays_around(end_date: pd.Timestamp, lookback_days: int = 730) -> set:
+    """Return US federal holidays around the report end date for working-day windows."""
+    end_date = pd.to_datetime(end_date).normalize()
+    cal = USFederalHolidayCalendar()
+    holidays = cal.holidays(
+        start=end_date - pd.Timedelta(days=lookback_days),
+        end=end_date + pd.Timedelta(days=lookback_days),
+    )
+    return {pd.to_datetime(x).normalize() for x in holidays}
+
+
+def is_valid_working_day(day, holidays: set) -> bool:
+    """Valid working day = Monday-Friday and not a US federal holiday."""
+    day = pd.to_datetime(day).normalize()
+    return day.weekday() < 5 and day not in holidays
+
+
+def last_valid_working_dates(end_date, count: int, holidays: set) -> list:
+    """Get exactly the last N valid working dates, including report end date if valid."""
+    dates = []
+    current = pd.to_datetime(end_date).normalize()
+    while len(dates) < count:
+        if is_valid_working_day(current, holidays):
+            dates.append(current)
+        current -= pd.Timedelta(days=1)
+    return sorted(dates)
+
+
+def add_valid_working_days(start_date, days, holidays: set):
+    """Add floor(days) valid working days, excluding Saturday/Sunday/holidays."""
+    if pd.isna(days) or not np.isfinite(days):
+        return pd.NaT
+    remaining = int(np.floor(days))
+    current = pd.to_datetime(start_date).normalize()
+    while remaining > 0:
+        current += pd.Timedelta(days=1)
+        if is_valid_working_day(current, holidays):
+            remaining -= 1
+    return current
 
 
 def build_inventory_model(raw: pd.DataFrame) -> dict:
@@ -313,42 +356,26 @@ def build_inventory_model(raw: pd.DataFrame) -> dict:
     report_end = pd.to_datetime(report_end).normalize()
     report_start = pd.to_datetime(report_start).normalize()
 
-    recent_window_sizes = {
-        "Outbound Last 30 Days": 30,
-        "Outbound Last 14 Days": 14,
-        "Outbound Last 7 Days": 7,
+    holidays = us_holidays_around(report_end)
+    window_dates = {
+        "Outbound Last 30 Days": last_valid_working_dates(report_end, 30, holidays),
+        "Outbound Last 14 Days": last_valid_working_dates(report_end, 14, holidays),
+        "Outbound Last 7 Days": last_valid_working_dates(report_end, 7, holidays),
     }
-
-    if tx_df.empty:
-        all_activity_dates = []
-    else:
-        all_activity_dates = sorted(
-            pd.to_datetime(tx_df.loc[tx_df["Activity Date"] <= report_end, "Activity Date"].dropna().unique())
-        )
-
-    active_date_windows = {}
-    windows = {}
-    for label, day_count in recent_window_sizes.items():
-        selected_dates = all_activity_dates[-day_count:]
-        active_date_windows[label] = selected_dates
-        if selected_dates:
-            windows[label] = (pd.Timestamp(selected_dates[0]), pd.Timestamp(selected_dates[-1]))
-        else:
-            windows[label] = (pd.NaT, pd.NaT)
+    windows = {label: (dates[0], dates[-1]) for label, dates in window_dates.items()}
 
     if sku_df.empty:
         raise ValueError("Không tìm thấy SKU nào trong file.")
 
-    for label, selected_dates in active_date_windows.items():
-        if tx_df.empty or not selected_dates:
+    for label, dates in window_dates.items():
+        if tx_df.empty:
             sku_df[label] = 0.0
         else:
-            mask = tx_df["Activity Date"].isin(selected_dates)
+            mask = tx_df["Activity Date"].isin(dates)
             agg = tx_df.loc[mask].groupby("SKU", as_index=True)["Qty Out"].sum()
             sku_df[label] = sku_df["SKU"].map(agg).fillna(0.0)
 
-    active_days_30d = max(len(active_date_windows["Outbound Last 30 Days"]), 1)
-    sku_df["Avg Daily Usage 30D"] = sku_df["Outbound Last 30 Days"] / active_days_30d
+    sku_df["Avg Daily Usage 30D"] = sku_df["Outbound Last 30 Days"] / len(window_dates["Outbound Last 30 Days"])
     sku_df["Days Remaining"] = np.where(
         sku_df["Avg Daily Usage 30D"] > 0,
         sku_df["Ending Balance"] / sku_df["Avg Daily Usage 30D"],
@@ -385,18 +412,10 @@ def build_inventory_model(raw: pd.DataFrame) -> dict:
     sku_df["Risk Level"] = sku_df.apply(risk_level, axis=1)
     sku_df["Recommended Action"] = sku_df.apply(recommended_action, axis=1)
 
-    active_days_30d_dates = active_date_windows["Outbound Last 30 Days"]
-    if len(active_days_30d_dates) >= 2:
-        active_day_span = (pd.Timestamp(active_days_30d_dates[-1]) - pd.Timestamp(active_days_30d_dates[0])).days
-        avg_calendar_gap_per_activity_day = active_day_span / max(len(active_days_30d_dates) - 1, 1)
-    else:
-        avg_calendar_gap_per_activity_day = 1
-
     def stockout_date(row):
         if not np.isfinite(row["Days Remaining"]):
             return pd.NaT
-        estimated_calendar_days = int(np.floor(row["Days Remaining"] * avg_calendar_gap_per_activity_day))
-        return report_end + pd.Timedelta(days=estimated_calendar_days)
+        return add_valid_working_days(report_end, row["Days Remaining"], holidays)
 
     sku_df["Forecast Stockout Date"] = sku_df.apply(stockout_date, axis=1)
 
@@ -424,8 +443,8 @@ def build_inventory_model(raw: pd.DataFrame) -> dict:
         "report_start": report_start,
         "report_end": report_end,
         "windows": windows,
-        "active_date_windows": active_date_windows,
-        "active_days_30d": active_days_30d,
+        "window_dates": window_dates,
+        "holidays": holidays,
         "header_idx": header_idx,
     }
 
@@ -526,6 +545,8 @@ st.sidebar.markdown("""
 - **Watch:** 15–30 days remaining
 - **Healthy:** More than 30 days remaining
 - **No Recent Demand:** Outbound 30D = 0
+
+Recent windows include the report date and count backward by valid working days only, excluding Saturdays, Sundays, and US federal holidays. Not Shipped and Cancelled rows are still counted when Qty Out > 0.
 """)
 
 # ============================================================
@@ -563,7 +584,7 @@ report_end = model["report_end"]
 windows = model["windows"]
 
 st.markdown(
-    f"<div class='small-note'>Report Range: <b>{fmt_date(report_start)}</b> to <b>{fmt_date(report_end)}</b></div>",
+    f"<div class='small-note'>Report Range: <b>{fmt_date(report_start)}</b> to <b>{fmt_date(report_end)}</b> | Recent windows use valid working days, including the report date.</div>",
     unsafe_allow_html=True,
 )
 
@@ -717,9 +738,9 @@ with audit_tab:
         if tx.empty:
             st.info("No dated outbound transactions found.")
         else:
-            selected_dates = model.get("active_date_windows", {}).get(label, [])
-            audit_tx = tx[tx["Activity Date"].isin(selected_dates)].copy()
-            st.write(f"Activity-date window: **{fmt_date(start)} – {fmt_date(end)}** | Active dates counted: **{len(selected_dates)}**")
+            valid_dates = model["window_dates"][label]
+            audit_tx = tx[tx["Activity Date"].isin(valid_dates)].copy()
+            st.write(f"Window: **{fmt_date(start)} – {fmt_date(end)}** | Valid working dates counted: **{len(valid_dates)}**")
             st.dataframe(audit_tx.sort_values(["SKU", "Activity Date"]), use_container_width=True, hide_index=True, height=520)
     elif audit_choice == "Official Total Rows":
         st.dataframe(model["official_total_df"], use_container_width=True, hide_index=True, height=520)
