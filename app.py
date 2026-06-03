@@ -1,1212 +1,695 @@
-import streamlit as st
-import pandas as pd
-import numpy as np
-import plotly.express as px
 import re
-from datetime import timedelta
+from datetime import date, datetime, timedelta
+from io import BytesIO
+
+import numpy as np
+import pandas as pd
+import plotly.express as px
+import streamlit as st
 
 
 # ============================================================
-# PAGE CONFIG
+# Streamlit page setup
 # ============================================================
-
 st.set_page_config(
     page_title="Inventory Shortage Dashboard",
     page_icon="📦",
-    layout="wide"
+    layout="wide",
+    initial_sidebar_state="expanded",
 )
-
-
-# ============================================================
-# CSS STYLE
-# ============================================================
 
 st.markdown(
     """
     <style>
-        .main-title {
-            font-size: 34px;
-            font-weight: 800;
-            margin-bottom: 0px;
+        .main .block-container {padding-top: 1.2rem; padding-bottom: 2rem;}
+        .kpi-card {
+            border: 1px solid #E5E7EB;
+            border-radius: 16px;
+            padding: 18px 18px 14px 18px;
+            background: linear-gradient(180deg, #FFFFFF 0%, #F9FAFB 100%);
+            box-shadow: 0 1px 2px rgba(16, 24, 40, 0.05);
+            min-height: 112px;
         }
-
-        .sub-title {
-            font-size: 15px;
-            color: #666;
-            margin-bottom: 20px;
-        }
-
-        .section-title {
-            font-size: 22px;
-            font-weight: 700;
-            margin-top: 25px;
-            margin-bottom: 10px;
-        }
-
-        .small-note {
-            font-size: 13px;
-            color: #777;
-        }
-
-        div[data-testid="stMetric"] {
-            background-color: #ffffff;
-            border: 1px solid #e6e6e6;
-            padding: 14px;
-            border-radius: 12px;
-            box-shadow: 0px 1px 4px rgba(0,0,0,0.06);
-        }
-
-        div[data-testid="stMetricLabel"] {
-            font-size: 13px;
-            color: #555;
-        }
-
-        div[data-testid="stMetricValue"] {
-            font-size: 26px;
-            font-weight: 700;
-        }
-
-        .risk-critical {
-            background-color: #fff1f0;
-            border-left: 6px solid #d93025;
-            padding: 12px;
-            border-radius: 8px;
-        }
-
-        .risk-warning {
-            background-color: #fff8e1;
-            border-left: 6px solid #fbbc04;
-            padding: 12px;
-            border-radius: 8px;
-        }
-
-        .risk-watch {
-            background-color: #e8f0fe;
-            border-left: 6px solid #1a73e8;
-            padding: 12px;
-            border-radius: 8px;
-        }
-
-        .risk-safe {
-            background-color: #e6f4ea;
-            border-left: 6px solid #188038;
-            padding: 12px;
-            border-radius: 8px;
-        }
-
-        .block-container {
-            padding-top: 2rem;
-        }
+        .kpi-label {font-size: 0.84rem; color:#667085; font-weight: 600; margin-bottom: 8px;}
+        .kpi-value {font-size: 1.85rem; color:#101828; font-weight: 800; line-height: 1.1;}
+        .kpi-help {font-size: 0.78rem; color:#98A2B3; margin-top: 8px;}
+        .section-title {font-size:1.18rem; font-weight:800; color:#101828; margin-top: 0.4rem;}
+        .section-subtitle {font-size:0.88rem; color:#667085; margin-bottom: 0.8rem;}
+        .small-note {font-size:0.82rem; color:#667085;}
+        div[data-testid="stDataFrame"] {border-radius: 12px; overflow: hidden;}
     </style>
     """,
-    unsafe_allow_html=True
+    unsafe_allow_html=True,
 )
 
 
 # ============================================================
-# HEADER
+# Utility functions
 # ============================================================
+FIXED_COLS = {
+    "sku": 0,
+    "description": 2,
+    "activity_date": 7,
+    "trans_no": 9,
+    "ref_no": 10,
+    "qty_in": 12,
+    "qty_out": 14,
+    "balance": 19,
+}
 
-st.markdown('<div class="main-title">📦 Inventory Shortage Dashboard</div>', unsafe_allow_html=True)
-st.markdown(
-    '<div class="sub-title">Focus: shortage risk, recent outbound trend, ending balance, and forecast stockout date.</div>',
-    unsafe_allow_html=True
-)
 
-
-# ============================================================
-# HELPERS
-# ============================================================
-
-def normalize_cell(value):
-    if pd.isna(value):
+def clean_text(value) -> str:
+    if value is None or (isinstance(value, float) and np.isnan(value)):
         return ""
-
-    text = str(value)
-
-    text = (
-        text
-        .replace("\xa0", " ")
-        .replace("\t", " ")
-        .replace(",", "")
-        .strip()
-    )
-
-    text = re.sub(r"\s+", " ", text)
-    return text
+    return str(value).replace("\u00a0", " ").replace("\u200b", "").strip()
 
 
-def clean_text(value):
-    return normalize_cell(value)
-
-
-def extract_number(value):
-    """
-    Extract unit quantity.
-
-    Examples:
-    5139 / 198        -> 5139
-       15.0000 / 90  -> 15
-    blank             -> 0
-    """
-    text = normalize_cell(value)
-
-    if text == "":
+def first_qty_number(value) -> float:
+    """Parse Qty like ' 5,139 / 198' and return first number only: 5139."""
+    text = clean_text(value)
+    if not text:
         return 0.0
-
-    if "/" in text:
-        text = text.split("/")[0].strip()
-
-    match = re.search(r"[-+]?\d*\.?\d+", text)
-
-    if match:
-        return float(match.group())
-
-    return 0.0
+    text = text.replace(",", "")
+    before_slash = text.split("/")[0]
+    match = re.search(r"-?\d+(?:\.\d+)?", before_slash)
+    return float(match.group()) if match else 0.0
 
 
-def has_number(value):
-    text = normalize_cell(value)
-    return bool(re.search(r"[-+]?\d*\.?\d+", text))
-
-
-def safe_row_text(row):
-    values = []
-
-    for value in row.tolist():
-        values.append(normalize_cell(value).lower())
-
-    return " ".join(values)
-
-
-def parse_activity_date(activity_text):
-    """
-    Handles:
-    6/1/2026
-    6/1/2026 (Not Shipped)
-    2026-06-01
-    """
-    activity_text = clean_text(activity_text)
-
-    if activity_text == "":
+def parse_excel_or_text_date(value):
+    """Parse dates including '6/1/2026 (Not Shipped)' and Excel serial dates."""
+    if value is None or (isinstance(value, float) and np.isnan(value)):
         return pd.NaT
 
-    date_match = re.search(
-        r"\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|\d{4}[/-]\d{1,2}[/-]\d{1,2}",
-        activity_text
-    )
+    if isinstance(value, (datetime, pd.Timestamp)):
+        return pd.to_datetime(value).normalize()
 
-    if date_match:
-        return pd.to_datetime(date_match.group(0), errors="coerce")
+    if isinstance(value, date):
+        return pd.to_datetime(value).normalize()
 
-    return pd.to_datetime(activity_text, errors="coerce")
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        # Excel serial dates are usually > 30000 for modern dates.
+        if value > 30000:
+            return pd.to_datetime(value, unit="D", origin="1899-12-30").normalize()
+        return pd.NaT
 
+    text = clean_text(value)
+    if not text:
+        return pd.NaT
 
-# ============================================================
-# EXCEL STRUCTURE HELPERS
-# ============================================================
-
-def find_header_row(raw_df):
-    for i in range(min(100, len(raw_df))):
-        row_text = safe_row_text(raw_df.iloc[i])
-
-        if "sku" in row_text and "activity date" in row_text:
-            return i
-
-    return None
+    # Remove status note but keep the date part.
+    text = re.sub(r"\s*\([^)]*\)", "", text).strip()
+    parsed = pd.to_datetime(text, errors="coerce")
+    return parsed.normalize() if not pd.isna(parsed) else pd.NaT
 
 
-def find_col(headers, contains_all=None, contains_any=None, fallback=None, exclude_any=None):
-    contains_all = contains_all or []
-    contains_any = contains_any or []
-    exclude_any = exclude_any or []
-
-    for idx, header in enumerate(headers):
-        h = normalize_cell(header).lower()
-
-        if not h:
-            continue
-
-        if any(ex in h for ex in exclude_any):
-            continue
-
-        if contains_all and not all(term in h for term in contains_all):
-            continue
-
-        if contains_any and not any(term in h for term in contains_any):
-            continue
-
-        return idx
-
-    return fallback
+def find_header_row(raw: pd.DataFrame) -> int:
+    for idx in range(len(raw)):
+        row_values = [clean_text(x).lower() for x in raw.iloc[idx].tolist()]
+        if "sku" in row_values and "activity date" in row_values and "ref #" in row_values:
+            return idx
+    raise ValueError("Không tìm thấy header row có SKU / Activity Date / Ref #.")
 
 
-def build_column_map(raw_df, header_row):
-    headers = raw_df.iloc[header_row].tolist()
-    headers_lower = [normalize_cell(x).lower() for x in headers]
-
-    return {
-        "sku": find_col(headers_lower, contains_any=["sku"], fallback=0),
-        "description": find_col(headers_lower, contains_any=["description", "item description"], fallback=2),
-        "activity_date": find_col(headers_lower, contains_all=["activity", "date"], fallback=7),
-        "trans": find_col(headers_lower, contains_any=["trans"], fallback=9),
-        "ref": find_col(headers_lower, contains_any=["ref"], fallback=10),
-        "qty_in": find_col(
-            headers_lower,
-            contains_all=["qty", "in"],
-            fallback=12,
-            exclude_any=["out"]
-        ),
-        "qty_out": find_col(
-            headers_lower,
-            contains_all=["qty", "out"],
-            fallback=14,
-            exclude_any=["inbound"]
-        ),
-        "balance": find_col(
-            headers_lower,
-            contains_any=["balance"],
-            fallback=19,
-            exclude_any=["ctn"]
-        )
-    }
-
-
-def get_cell(row, idx):
-    if idx is None:
-        return None
-
-    if idx < 0 or idx >= len(row):
-        return None
-
-    return row.iloc[idx]
-
-
-def read_numeric_with_fallback(row, main_idx, scan_start=None, scan_end=None):
-    """
-    Read main cell first.
-    If blank, scan nearby cells.
-
-    This handles cases where Qty cell appears shifted because of blank spaces.
-    """
-    main_value = get_cell(row, main_idx)
-    main_text = normalize_cell(main_value)
-
-    if main_text != "":
-        return extract_number(main_value), main_text
-
-    if scan_start is None:
-        scan_start = max((main_idx or 0) - 1, 0)
-
-    if scan_end is None:
-        scan_end = min((main_idx or 0) + 3, len(row) - 1)
-
-    scan_start = max(scan_start, 0)
-    scan_end = min(scan_end, len(row) - 1)
-
-    for col in range(scan_start, scan_end + 1):
-        value = get_cell(row, col)
-        text = normalize_cell(value)
-
-        if text == "":
-            continue
-
-        if has_number(text):
-            return extract_number(text), text
-
-    return 0.0, ""
-
-
-# ============================================================
-# REPORT RANGE
-# ============================================================
-
-def extract_report_range(raw_df):
-    report_start = None
-    report_end = None
-
-    for i in range(min(30, len(raw_df))):
-        row = raw_df.iloc[i]
-        row_text = safe_row_text(row)
-
+def extract_report_range(raw: pd.DataFrame):
+    start_dt, end_dt = pd.NaT, pd.NaT
+    for r in range(min(15, len(raw))):
+        row = raw.iloc[r].tolist()
+        row_text = " | ".join(clean_text(x) for x in row).lower()
         if "item activity from" in row_text:
-            dates_found = []
+            # Start = first date-like value after label. End = first date-like value after 'to'.
+            to_index = None
+            for i, value in enumerate(row):
+                if clean_text(value).lower() == "to":
+                    to_index = i
+                    break
 
-            for value in row.tolist():
-                parsed_date = pd.to_datetime(value, errors="coerce")
+            dates_before_to, dates_after_to = [], []
+            for i, value in enumerate(row):
+                parsed = parse_excel_or_text_date(value)
+                if not pd.isna(parsed):
+                    if to_index is not None and i > to_index:
+                        dates_after_to.append(parsed)
+                    else:
+                        dates_before_to.append(parsed)
 
-                if pd.notna(parsed_date):
-                    dates_found.append(parsed_date)
-
-            if len(dates_found) < 2:
-                date_patterns = re.findall(
-                    r"\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|\d{4}[/-]\d{1,2}[/-]\d{1,2}",
-                    row_text
-                )
-
-                for date_text in date_patterns:
-                    parsed_date = pd.to_datetime(date_text, errors="coerce")
-
-                    if pd.notna(parsed_date):
-                        dates_found.append(parsed_date)
-
-            if len(dates_found) >= 1:
-                report_start = dates_found[0]
-
-            if len(dates_found) >= 2:
-                report_end = dates_found[1]
-
+            if dates_before_to:
+                start_dt = dates_before_to[0]
+            if dates_after_to:
+                end_dt = dates_after_to[0]
+            elif len(dates_before_to) >= 2:
+                end_dt = dates_before_to[1]
             break
 
-    return report_start, report_end
+    return start_dt, end_dt
 
 
-# ============================================================
-# FILTERS / LOGIC
-# ============================================================
-
-def filter_recent_window(tx, end_date, days):
-    """
-    True calendar window.
-
-    Last 30 days = report end date - 29 days through report end date.
-    Not Shipped rows are included if Qty Out > 0.
-    """
-    start_date = end_date - timedelta(days=days - 1)
-
-    filtered = tx[
-        (tx["Activity Date"] >= start_date)
-        & (tx["Activity Date"] <= end_date)
-        & (tx["Qty Out"] > 0)
-    ].copy()
-
-    return filtered, start_date, end_date
+def load_excel_to_raw(uploaded_file) -> pd.DataFrame:
+    # header=None is important because the file has report title rows above the actual header.
+    return pd.read_excel(uploaded_file, sheet_name=0, header=None, dtype=object)
 
 
-def set_risk_filter(values):
-    st.session_state["risk_filter_click"] = values
-
-
-def apply_risk_sort(df):
-    risk_order = {
-        "Critical": 1,
-        "Warning": 2,
-        "Watch": 3,
-        "Safe": 4,
-        "No Recent Movement": 5
-    }
-
-    df = df.copy()
-    df["Risk Sort"] = df["Risk Level"].map(risk_order)
-
-    return df.sort_values(
-        ["Risk Sort", "Days Remaining"],
-        ascending=[True, True]
-    )
-
-
-def format_days(value):
-    if pd.isna(value):
-        return ""
-
-    return round(float(value), 1)
-
-
-# ============================================================
-# PARSER
-# ============================================================
-
-def parse_item_activity_report(uploaded_file):
-    raw = pd.read_excel(uploaded_file, sheet_name=0, header=None)
-
+def build_inventory_model(raw: pd.DataFrame) -> dict:
+    header_idx = find_header_row(raw)
     report_start, report_end = extract_report_range(raw)
-    header_row = find_header_row(raw)
 
-    if header_row is None:
-        raise ValueError("Cannot find Item Activity Report header row.")
+    rows = raw.iloc[header_idx + 1 :].copy()
 
-    col = build_column_map(raw, header_row)
+    current_sku = ""
+    current_desc = ""
+    sku_records = {}
+    transactions = []
+    official_total_rows = []
+    official_ending_rows = []
+    not_shipped_rows = []
+    cancelled_rows = []
 
-    records = []
+    for excel_row_num, row in rows.iterrows():
+        sku_cell = clean_text(row.iloc[FIXED_COLS["sku"]] if len(row) > FIXED_COLS["sku"] else "")
+        desc_cell = clean_text(row.iloc[FIXED_COLS["description"]] if len(row) > FIXED_COLS["description"] else "")
+        activity_raw = row.iloc[FIXED_COLS["activity_date"]] if len(row) > FIXED_COLS["activity_date"] else None
+        activity_text = clean_text(activity_raw)
+        ref_text = clean_text(row.iloc[FIXED_COLS["ref_no"]] if len(row) > FIXED_COLS["ref_no"] else "")
+        trans_no = clean_text(row.iloc[FIXED_COLS["trans_no"]] if len(row) > FIXED_COLS["trans_no"] else "")
+        qty_in = first_qty_number(row.iloc[FIXED_COLS["qty_in"]] if len(row) > FIXED_COLS["qty_in"] else None)
+        qty_out = first_qty_number(row.iloc[FIXED_COLS["qty_out"]] if len(row) > FIXED_COLS["qty_out"] else None)
+        balance = first_qty_number(row.iloc[FIXED_COLS["balance"]] if len(row) > FIXED_COLS["balance"] else None)
 
-    current_sku = None
-    current_description = None
-
-    for idx in range(header_row + 1, len(raw)):
-        row = raw.iloc[idx]
-
-        sku_cell = get_cell(row, col["sku"])
-        description_cell = get_cell(row, col["description"])
-
-        # New SKU block
-        if pd.notna(sku_cell) and normalize_cell(sku_cell) != "":
-            sku_text = normalize_cell(sku_cell)
-
-            ignored_words = [
-                "sku",
-                "nan",
-                "warehouse",
-                "customer",
-                "item activity",
-                "activity date",
-                "page",
-                "total"
-            ]
-
-            if sku_text.lower() not in ignored_words:
-                current_sku = sku_text
-                current_description = clean_text(description_cell)
-
-            continue
-
-        activity_date_raw = get_cell(row, col["activity_date"])
-        trans_no = get_cell(row, col["trans"])
-        ref_no = get_cell(row, col["ref"])
-
-        activity_text = clean_text(activity_date_raw)
-        trans_text = clean_text(trans_no)
-        ref_text = clean_text(ref_no)
-
-        activity_text_lower = activity_text.lower()
-        ref_text_lower = ref_text.lower()
-
-        is_beginning_balance = activity_text_lower == "beginning balance"
-        is_ending_balance = activity_text_lower == "ending balance"
-
-        row_cells_lower = [normalize_cell(x).lower() for x in row.tolist()]
-        is_total_row = (
-            ref_text_lower == "total"
-            or any(x == "total" for x in row_cells_lower)
-        )
-
-        should_keep_row = (
-            current_sku is not None
-            and (
-                activity_text != ""
-                or is_total_row
+        # SKU section row: SKU appears in column A, usually no real transaction date/ref.
+        if sku_cell and sku_cell.lower() != "sku" and ref_text.lower() != "total":
+            current_sku = sku_cell
+            if desc_cell:
+                current_desc = desc_cell
+            sku_records.setdefault(
+                current_sku,
+                {
+                    "SKU": current_sku,
+                    "Description": current_desc,
+                    "Official Total Inbound": 0.0,
+                    "Official Total Outbound": 0.0,
+                    "Ending Balance": 0.0,
+                    "Official Ending Row": None,
+                    "Official Total Row": None,
+                    "Last Activity Date": pd.NaT,
+                },
             )
-        )
+            if desc_cell:
+                sku_records[current_sku]["Description"] = desc_cell
 
-        if not should_keep_row:
+        if not current_sku:
             continue
 
-        if is_beginning_balance or is_ending_balance or is_total_row:
-            activity_date = pd.NaT
-        else:
-            activity_date = parse_activity_date(activity_text)
-
-        qty_in_scan_start = col["qty_in"]
-        qty_in_scan_end = max(col["qty_in"], col["qty_out"] - 1) if col["qty_out"] else col["qty_in"] + 2
-
-        qty_out_scan_start = col["qty_out"]
-        qty_out_scan_end = max(col["qty_out"], col["balance"] - 1) if col["balance"] else col["qty_out"] + 3
-
-        qty_in_num, raw_qty_in = read_numeric_with_fallback(
-            row,
-            col["qty_in"],
-            qty_in_scan_start,
-            qty_in_scan_end
+        sku_records.setdefault(
+            current_sku,
+            {
+                "SKU": current_sku,
+                "Description": current_desc,
+                "Official Total Inbound": 0.0,
+                "Official Total Outbound": 0.0,
+                "Ending Balance": 0.0,
+                "Official Ending Row": None,
+                "Official Total Row": None,
+                "Last Activity Date": pd.NaT,
+            },
         )
 
-        qty_out_num, raw_qty_out = read_numeric_with_fallback(
-            row,
-            col["qty_out"],
-            qty_out_scan_start,
-            qty_out_scan_end
-        )
+        if activity_text.lower() == "ending balance":
+            sku_records[current_sku]["Ending Balance"] = balance
+            sku_records[current_sku]["Official Ending Row"] = excel_row_num + 1
+            official_ending_rows.append(
+                {
+                    "Excel Row": excel_row_num + 1,
+                    "SKU": current_sku,
+                    "Description": sku_records[current_sku]["Description"],
+                    "Activity Date": activity_text,
+                    "Balance": balance,
+                }
+            )
+            continue
 
-        balance_num, raw_balance = read_numeric_with_fallback(
-            row,
-            col["balance"],
-            col["balance"],
-            min(col["balance"] + 2, len(row) - 1)
-        )
+        # Official total row must be Ref # = Total, not Activity Date.
+        if ref_text.lower() == "total":
+            sku_records[current_sku]["Official Total Inbound"] = qty_in
+            sku_records[current_sku]["Official Total Outbound"] = qty_out
+            sku_records[current_sku]["Official Total Row"] = excel_row_num + 1
+            official_total_rows.append(
+                {
+                    "Excel Row": excel_row_num + 1,
+                    "SKU": current_sku,
+                    "Description": sku_records[current_sku]["Description"],
+                    "Ref #": ref_text,
+                    "Official Total Inbound": qty_in,
+                    "Official Total Outbound": qty_out,
+                    "Balance": balance,
+                }
+            )
+            continue
 
-        if is_beginning_balance:
-            movement_type = "Beginning Balance"
-        elif is_ending_balance:
-            movement_type = "Ending Balance"
-        elif is_total_row:
-            movement_type = "Total"
-        elif qty_in_num > 0 and qty_out_num == 0:
-            movement_type = "Inbound"
-        elif qty_out_num > 0 and qty_in_num == 0:
-            movement_type = "Outbound"
-        elif qty_in_num > 0 and qty_out_num > 0:
-            movement_type = "Mixed"
-        else:
-            movement_type = "No Movement"
-
-        is_cancelled = (
-            "cancel" in ref_text.lower()
-            or "cancel" in trans_text.lower()
-        )
-
+        activity_dt = parse_excel_or_text_date(activity_raw)
+        is_cancelled = "cancel" in ref_text.lower()
         is_not_shipped = "not shipped" in activity_text.lower()
 
-        records.append({
-            "Source Row": idx + 1,
-            "SKU": current_sku,
-            "Description": current_description,
-            "Activity Date": activity_date,
-            "Activity Text": activity_text,
-            "Trans #": trans_text,
-            "Ref #": ref_text,
-            "Raw Qty In": raw_qty_in,
-            "Raw Qty Out": raw_qty_out,
-            "Raw Balance": raw_balance,
-            "Qty In": qty_in_num,
-            "Qty Out": qty_out_num,
-            "Balance": balance_num,
-            "Movement Type": movement_type,
-            "Is Beginning Balance": is_beginning_balance,
-            "Is Ending Balance": is_ending_balance,
-            "Is Total Row": is_total_row,
-            "Is Cancelled": is_cancelled,
-            "Is Not Shipped": is_not_shipped
-        })
+        if is_cancelled:
+            cancelled_rows.append(
+                {
+                    "Excel Row": excel_row_num + 1,
+                    "SKU": current_sku,
+                    "Description": sku_records[current_sku]["Description"],
+                    "Activity Date Raw": activity_text,
+                    "Activity Date": activity_dt,
+                    "Ref #": ref_text,
+                    "Qty Out": qty_out,
+                }
+            )
 
-    df = pd.DataFrame(records)
+        if is_not_shipped:
+            not_shipped_rows.append(
+                {
+                    "Excel Row": excel_row_num + 1,
+                    "SKU": current_sku,
+                    "Description": sku_records[current_sku]["Description"],
+                    "Activity Date Raw": activity_text,
+                    "Parsed Date": activity_dt,
+                    "Ref #": ref_text,
+                    "Qty Out": qty_out,
+                }
+            )
 
-    if df.empty:
-        raise ValueError("No activity records found.")
+        # Dated transaction rows for recent outbound. Count Not Shipped if Qty Out > 0.
+        if not pd.isna(activity_dt) and qty_out > 0:
+            transactions.append(
+                {
+                    "Excel Row": excel_row_num + 1,
+                    "SKU": current_sku,
+                    "Description": sku_records[current_sku]["Description"],
+                    "Activity Date Raw": activity_text,
+                    "Activity Date": activity_dt,
+                    "Trans. #": trans_no,
+                    "Ref #": ref_text,
+                    "Qty Out": qty_out,
+                    "Qty In": qty_in,
+                    "Balance After Transaction": balance,
+                    "Is Not Shipped": is_not_shipped,
+                    "Is Cancelled": is_cancelled,
+                }
+            )
 
-    return df, report_start, report_end
+            existing_last = sku_records[current_sku]["Last Activity Date"]
+            if pd.isna(existing_last) or activity_dt > existing_last:
+                sku_records[current_sku]["Last Activity Date"] = activity_dt
 
+    sku_df = pd.DataFrame(sku_records.values())
+    tx_df = pd.DataFrame(transactions)
+    official_total_df = pd.DataFrame(official_total_rows)
+    official_ending_df = pd.DataFrame(official_ending_rows)
+    not_shipped_df = pd.DataFrame(not_shipped_rows)
+    cancelled_df = pd.DataFrame(cancelled_rows)
 
-# ============================================================
-# SUMMARY
-# ============================================================
+    if pd.isna(report_end):
+        # Fallback: use max activity date if header range cannot be parsed.
+        report_end = tx_df["Activity Date"].max() if not tx_df.empty else pd.Timestamp.today().normalize()
+    if pd.isna(report_start):
+        report_start = tx_df["Activity Date"].min() if not tx_df.empty else report_end
 
-def build_summary(df, report_start=None, report_end=None):
-    tx = df[
-        (df["Activity Date"].notna())
-        & (~df["Movement Type"].isin(["Beginning Balance", "Ending Balance", "Total"]))
-    ].copy()
+    report_end = pd.to_datetime(report_end).normalize()
+    report_start = pd.to_datetime(report_start).normalize()
 
-    if tx.empty:
-        raise ValueError("No valid transaction dates found.")
+    windows = {
+        "Outbound Last 30 Days": (report_end - pd.Timedelta(days=29), report_end),
+        "Outbound Last 14 Days": (report_end - pd.Timedelta(days=13), report_end),
+        "Outbound Last 7 Days": (report_end - pd.Timedelta(days=6), report_end),
+    }
 
-    activity_min_date = tx["Activity Date"].min()
-    activity_max_date = tx["Activity Date"].max()
+    if sku_df.empty:
+        raise ValueError("Không tìm thấy SKU nào trong file.")
 
-    report_min_date = (
-        report_start
-        if report_start is not None and pd.notna(report_start)
-        else activity_min_date
-    )
+    for label, (start, end) in windows.items():
+        if tx_df.empty:
+            sku_df[label] = 0.0
+        else:
+            mask = (tx_df["Activity Date"] >= start) & (tx_df["Activity Date"] <= end)
+            agg = tx_df.loc[mask].groupby("SKU", as_index=True)["Qty Out"].sum()
+            sku_df[label] = sku_df["SKU"].map(agg).fillna(0.0)
 
-    report_max_date = (
-        report_end
-        if report_end is not None and pd.notna(report_end)
-        else activity_max_date
-    )
-
-    recent_end_date = report_max_date
-
-    # Official ending balance
-    ending_balance_rows = df[df["Movement Type"] == "Ending Balance"].copy()
-
-    if not ending_balance_rows.empty:
-        ending_balance_rows["Source Order"] = range(len(ending_balance_rows))
-
-        latest_balance = (
-            ending_balance_rows
-            .sort_values(["SKU", "Source Order"])
-            .groupby("SKU", as_index=False)
-            .tail(1)[["SKU", "Description", "Balance"]]
-            .rename(columns={"Balance": "Ending Balance"})
-        )
-    else:
-        sorted_df = tx.copy()
-        sorted_df["Source Order"] = range(len(sorted_df))
-
-        latest_balance = (
-            sorted_df
-            .sort_values(["SKU", "Activity Date", "Source Order"])
-            .groupby("SKU", as_index=False)
-            .tail(1)[["SKU", "Description", "Balance"]]
-            .rename(columns={"Balance": "Ending Balance"})
-        )
-
-    # Official totals
-    total_rows = df[df["Movement Type"] == "Total"].copy()
-
-    if not total_rows.empty:
-        total_rows["Source Order"] = range(len(total_rows))
-
-        official_totals = (
-            total_rows
-            .sort_values(["SKU", "Source Order"])
-            .groupby("SKU", as_index=False)
-            .tail(1)[["SKU", "Qty In", "Qty Out"]]
-            .rename(columns={
-                "Qty In": "Total Inbound",
-                "Qty Out": "Total Outbound"
-            })
-        )
-
-        total_inbound = official_totals[["SKU", "Total Inbound"]]
-        total_outbound = official_totals[["SKU", "Total Outbound"]]
-
-    else:
-        total_inbound = (
-            tx.groupby("SKU", as_index=False)["Qty In"]
-            .sum()
-            .rename(columns={"Qty In": "Total Inbound"})
-        )
-
-        total_outbound = (
-            tx.groupby("SKU", as_index=False)["Qty Out"]
-            .sum()
-            .rename(columns={"Qty Out": "Total Outbound"})
-        )
-
-    last_activity = (
-        tx.groupby("SKU", as_index=False)["Activity Date"]
-        .max()
-        .rename(columns={"Activity Date": "Last Activity Date"})
-    )
-
-    tx_30, outbound_30_start, outbound_30_end = filter_recent_window(tx, recent_end_date, 30)
-    tx_14, outbound_14_start, outbound_14_end = filter_recent_window(tx, recent_end_date, 14)
-    tx_7, outbound_7_start, outbound_7_end = filter_recent_window(tx, recent_end_date, 7)
-
-    outbound_30 = (
-        tx_30.groupby("SKU", as_index=False)["Qty Out"]
-        .sum()
-        .rename(columns={"Qty Out": "Outbound Last 30 Days"})
-    )
-
-    outbound_14 = (
-        tx_14.groupby("SKU", as_index=False)["Qty Out"]
-        .sum()
-        .rename(columns={"Qty Out": "Outbound Last 14 Days"})
-    )
-
-    outbound_7 = (
-        tx_7.groupby("SKU", as_index=False)["Qty Out"]
-        .sum()
-        .rename(columns={"Qty Out": "Outbound Last 7 Days"})
-    )
-
-    summary = latest_balance.copy()
-
-    for small_df in [
-        total_inbound,
-        total_outbound,
-        last_activity,
-        outbound_30,
-        outbound_14,
-        outbound_7
-    ]:
-        summary = summary.merge(small_df, on="SKU", how="left")
-
-    fill_cols = [
-        "Total Inbound",
-        "Total Outbound",
-        "Outbound Last 30 Days",
-        "Outbound Last 14 Days",
-        "Outbound Last 7 Days"
-    ]
-
-    summary[fill_cols] = summary[fill_cols].fillna(0)
-
-    summary["Avg Daily Usage 30D"] = summary["Outbound Last 30 Days"] / 30
-
-    summary["Days Remaining"] = np.where(
-        summary["Avg Daily Usage 30D"] > 0,
-        summary["Ending Balance"] / summary["Avg Daily Usage 30D"],
-        np.nan
+    sku_df["Avg Daily Usage 30D"] = sku_df["Outbound Last 30 Days"] / 30
+    sku_df["Days Remaining"] = np.where(
+        sku_df["Avg Daily Usage 30D"] > 0,
+        sku_df["Ending Balance"] / sku_df["Avg Daily Usage 30D"],
+        np.inf,
     )
 
     def risk_level(row):
-        ending_balance = row["Ending Balance"]
-        usage = row["Avg Daily Usage 30D"]
+        ending = row["Ending Balance"]
+        usage_30 = row["Outbound Last 30 Days"]
+        usage_14 = row["Outbound Last 14 Days"]
+        usage_7 = row["Outbound Last 7 Days"]
         days = row["Days Remaining"]
 
-        if ending_balance <= 0 and usage > 0:
+        if ending <= 0 and (usage_30 > 0 or usage_14 > 0 or usage_7 > 0):
             return "Critical"
-        if usage == 0:
-            return "No Recent Movement"
-        if days <= 7:
+        if usage_7 > 0 and days <= 7:
             return "Critical"
-        if days <= 14:
+        if usage_14 > 0 and days <= 14:
             return "Warning"
-        if days <= 30:
+        if usage_30 > 0 and days <= 30:
             return "Watch"
-        return "Safe"
+        return "Healthy"
 
     def recommended_action(row):
         risk = row["Risk Level"]
-
         if risk == "Critical":
-            return "Immediate check / inbound follow-up"
+            return "Prepare inbound / allocate stock immediately"
         if risk == "Warning":
-            return "Prepare replenishment"
+            return "Review inbound ETA and reserve inventory"
         if risk == "Watch":
-            return "Monitor closely"
-        if risk == "No Recent Movement":
-            return "No recent demand"
-        return "OK"
+            return "Monitor weekly usage and upcoming orders"
+        return "No immediate action"
 
-    summary["Risk Level"] = summary.apply(risk_level, axis=1)
-    summary["Recommended Action"] = summary.apply(recommended_action, axis=1)
+    sku_df["Risk Level"] = sku_df.apply(risk_level, axis=1)
+    sku_df["Recommended Action"] = sku_df.apply(recommended_action, axis=1)
 
     def stockout_date(row):
-        if pd.isna(row["Days Remaining"]):
-            return ""
-        if row["Days Remaining"] < 0:
-            return ""
+        if not np.isfinite(row["Days Remaining"]):
+            return pd.NaT
+        return report_end + pd.Timedelta(days=int(np.floor(row["Days Remaining"])))
 
-        return (recent_end_date + timedelta(days=float(row["Days Remaining"]))).date()
+    sku_df["Forecast Stockout Date"] = sku_df.apply(stockout_date, axis=1)
 
-    summary["Forecast Stockout Date"] = summary.apply(stockout_date, axis=1)
+    risk_order = {"Critical": 0, "Warning": 1, "Watch": 2, "Healthy": 3}
+    sku_df["Risk Sort"] = sku_df["Risk Level"].map(risk_order).fillna(9)
+    sku_df = sku_df.sort_values(
+        by=["Risk Sort", "Days Remaining", "Outbound Last 14 Days", "Outbound Last 30 Days"],
+        ascending=[True, True, False, False],
+    ).reset_index(drop=True)
 
-    summary["Report Start Date"] = report_min_date.date()
-    summary["Report End Date"] = report_max_date.date()
-    summary["Activity Start Date"] = activity_min_date.date()
-    summary["Activity End Date"] = activity_max_date.date()
+    # Daily trend for outbound.
+    if tx_df.empty:
+        trend_df = pd.DataFrame(columns=["Activity Date", "Qty Out"])
+    else:
+        trend_df = tx_df.groupby("Activity Date", as_index=False)["Qty Out"].sum().sort_values("Activity Date")
 
-    recent_windows = {
-        "30D": {"start": outbound_30_start, "end": outbound_30_end, "rows": tx_30},
-        "14D": {"start": outbound_14_start, "end": outbound_14_end, "rows": tx_14},
-        "7D": {"start": outbound_7_start, "end": outbound_7_end, "rows": tx_7}
+    return {
+        "sku_df": sku_df,
+        "tx_df": tx_df,
+        "trend_df": trend_df,
+        "official_total_df": official_total_df,
+        "official_ending_df": official_ending_df,
+        "not_shipped_df": not_shipped_df,
+        "cancelled_df": cancelled_df,
+        "report_start": report_start,
+        "report_end": report_end,
+        "windows": windows,
+        "header_idx": header_idx,
     }
 
-    return (
-        summary,
-        tx,
-        recent_windows,
-        report_min_date,
-        report_max_date,
-        activity_min_date,
-        activity_max_date
+
+def fmt_num(value, decimals=0):
+    if value is None or pd.isna(value):
+        return "-"
+    if value == np.inf:
+        return "∞"
+    return f"{value:,.{decimals}f}"
+
+
+def fmt_date(value):
+    if value is None or pd.isna(value):
+        return "-"
+    return pd.to_datetime(value).strftime("%m/%d/%Y")
+
+
+def risk_badge_text(level: str) -> str:
+    return {
+        "Critical": "🔴 Critical",
+        "Warning": "🟠 Warning",
+        "Watch": "🟡 Watch",
+        "Healthy": "🟢 Healthy",
+    }.get(level, level)
+
+
+def metric_card(label, value, help_text=""):
+    st.markdown(
+        f"""
+        <div class="kpi-card">
+            <div class="kpi-label">{label}</div>
+            <div class="kpi-value">{value}</div>
+            <div class="kpi-help">{help_text}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
     )
 
 
-# ============================================================
-# SIDEBAR
-# ============================================================
+def prepare_display(df: pd.DataFrame) -> pd.DataFrame:
+    out = df.copy()
+    out["Risk Level"] = out["Risk Level"].map(risk_badge_text)
+    for c in ["Ending Balance", "Official Total Outbound", "Outbound Last 30 Days", "Outbound Last 14 Days", "Outbound Last 7 Days"]:
+        if c in out.columns:
+            out[c] = out[c].round(0).astype("Int64")
+    if "Avg Daily Usage 30D" in out.columns:
+        out["Avg Daily Usage 30D"] = out["Avg Daily Usage 30D"].round(2)
+    if "Days Remaining" in out.columns:
+        out["Days Remaining"] = out["Days Remaining"].replace(np.inf, np.nan).round(1)
+    for c in ["Forecast Stockout Date", "Last Activity Date"]:
+        if c in out.columns:
+            out[c] = pd.to_datetime(out[c], errors="coerce").dt.strftime("%m/%d/%Y").replace("NaT", "")
+    return out
 
-st.sidebar.header("Upload")
-uploaded_file = st.sidebar.file_uploader(
-    "Upload Item Activity Report",
-    type=["xlsx"]
+
+def to_excel_bytes(model: dict) -> bytes:
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        prepare_display(model["sku_df"]).drop(columns=["Risk Sort"], errors="ignore").to_excel(writer, sheet_name="Shortage Priority", index=False)
+        model["tx_df"].to_excel(writer, sheet_name="Dated Transactions", index=False)
+        model["official_total_df"].to_excel(writer, sheet_name="Official Total Rows", index=False)
+        model["official_ending_df"].to_excel(writer, sheet_name="Ending Balance Rows", index=False)
+        model["not_shipped_df"].to_excel(writer, sheet_name="Not Shipped Rows", index=False)
+        model["cancelled_df"].to_excel(writer, sheet_name="Cancelled Rows", index=False)
+    return output.getvalue()
+
+
+# ============================================================
+# Sidebar controls
+# ============================================================
+st.sidebar.title("📦 Inventory Dashboard")
+st.sidebar.caption("Upload Item Activity Report Excel để tự động build shortage report.")
+
+uploaded = st.sidebar.file_uploader(
+    "Drop Excel file here",
+    type=["xlsx", "xls"],
+    help="File format tương tự Item Activity Report.",
 )
 
 st.sidebar.divider()
-st.sidebar.header("Logic")
-st.sidebar.write(
-    """
-    **Shortage forecast uses:**
-
-    Ending Balance  
-    Outbound Last 30 Days  
-    Average Daily Usage  
-    Days Remaining  
-
-    Not Shipped rows are included when Qty Out > 0.
-    """
+st.sidebar.subheader("Risk Filter")
+show_risks = st.sidebar.multiselect(
+    "Risk Level",
+    options=["Critical", "Warning", "Watch", "Healthy"],
+    default=["Critical", "Warning", "Watch"],
 )
 
+min_usage = st.sidebar.number_input("Minimum Outbound Last 30 Days", min_value=0, value=0, step=1)
+search_text = st.sidebar.text_input("Search SKU / Description", placeholder="Example: SBED, BACKUP SWITCH...")
+
+st.sidebar.divider()
+st.sidebar.caption("Logic locked: Official Total row = Ref # Total. Ending Balance row = Activity Date Ending Balance. Qty uses first number before slash.")
+
 
 # ============================================================
-# MAIN APP
+# Main app
 # ============================================================
-
-if uploaded_file is None:
-    st.info("Upload an Item Activity Report Excel file from the sidebar to start.")
-
-else:
-    try:
-        df, report_start, report_end = parse_item_activity_report(uploaded_file)
-
-        (
-            summary,
-            tx,
-            recent_windows,
-            report_min_date,
-            report_max_date,
-            activity_min_date,
-            activity_max_date
-        ) = build_summary(df, report_start, report_end)
-
-        if "risk_filter_click" not in st.session_state:
-            st.session_state["risk_filter_click"] = ["Critical", "Warning"]
-
-        # ========================================================
-        # TOP INFO
-        # ========================================================
-
-        st.markdown('<div class="section-title">Report Overview</div>', unsafe_allow_html=True)
-
-        st.caption(
-            f"Report Range: {report_min_date.date()} to {report_max_date.date()} | "
-            f"Recent 30D Window: {recent_windows['30D']['start'].date()} to {recent_windows['30D']['end'].date()}"
-        )
-
-        total_skus = summary["SKU"].nunique()
-        total_ending_balance = summary["Ending Balance"].sum()
-        total_outbound_30 = summary["Outbound Last 30 Days"].sum()
-        total_outbound_14 = summary["Outbound Last 14 Days"].sum()
-        total_outbound_7 = summary["Outbound Last 7 Days"].sum()
-
-        critical_count = (summary["Risk Level"] == "Critical").sum()
-        warning_count = (summary["Risk Level"] == "Warning").sum()
-        watch_count = (summary["Risk Level"] == "Watch").sum()
-
-        k1, k2, k3, k4, k5, k6 = st.columns(6)
-
-        with k1:
-            st.metric("Total SKUs", f"{total_skus:,}")
-
-        with k2:
-            st.metric("Critical", f"{critical_count:,}")
-
-        with k3:
-            st.metric("Warning", f"{warning_count:,}")
-
-        with k4:
-            st.metric("Watch", f"{watch_count:,}")
-
-        with k5:
-            st.metric("Ending Balance", f"{total_ending_balance:,.0f}")
-
-        with k6:
-            st.metric("Outbound 30D", f"{total_outbound_30:,.0f}")
-
-        # ========================================================
-        # ACTION BUTTONS
-        # ========================================================
-
-        b1, b2, b3, b4 = st.columns(4)
-
-        with b1:
-            if st.button("View Critical", use_container_width=True):
-                set_risk_filter(["Critical"])
-
-        with b2:
-            if st.button("View Warning", use_container_width=True):
-                set_risk_filter(["Warning"])
-
-        with b3:
-            if st.button("View Critical + Warning", use_container_width=True):
-                set_risk_filter(["Critical", "Warning"])
-
-        with b4:
-            if st.button("View All Risks", use_container_width=True):
-                set_risk_filter(["Critical", "Warning", "Watch", "Safe", "No Recent Movement"])
-
-        # ========================================================
-        # RECENT OUTBOUND CARDS
-        # ========================================================
-
-        st.markdown('<div class="section-title">Recent Outbound</div>', unsafe_allow_html=True)
-
-        r1, r2, r3 = st.columns(3)
-
-        with r1:
-            st.metric(
-                "Last 30 Days",
-                f"{total_outbound_30:,.0f}",
-                help=f"{recent_windows['30D']['start'].date()} to {recent_windows['30D']['end'].date()}"
-            )
-
-        with r2:
-            st.metric(
-                "Last 14 Days",
-                f"{total_outbound_14:,.0f}",
-                help=f"{recent_windows['14D']['start'].date()} to {recent_windows['14D']['end'].date()}"
-            )
-
-        with r3:
-            st.metric(
-                "Last 7 Days",
-                f"{total_outbound_7:,.0f}",
-                help=f"{recent_windows['7D']['start'].date()} to {recent_windows['7D']['end'].date()}"
-            )
-
-        # ========================================================
-        # MAIN SHORTAGE TABLE
-        # ========================================================
-
-        st.markdown('<div class="section-title">Shortage Priority List</div>', unsafe_allow_html=True)
-
-        risk_filter = st.multiselect(
-            "Risk filter",
-            ["Critical", "Warning", "Watch", "Safe", "No Recent Movement"],
-            default=st.session_state["risk_filter_click"]
-        )
-
-        shortage_view = summary[
-            summary["Risk Level"].isin(risk_filter)
-        ].copy()
-
-        shortage_view = apply_risk_sort(shortage_view)
-
-        shortage_view["Days Remaining"] = shortage_view["Days Remaining"].apply(format_days)
-
-        priority_cols = [
-            "SKU",
-            "Description",
-            "Risk Level",
-            "Recommended Action",
-            "Ending Balance",
-            "Outbound Last 30 Days",
-            "Outbound Last 14 Days",
-            "Outbound Last 7 Days",
-            "Avg Daily Usage 30D",
-            "Days Remaining",
-            "Forecast Stockout Date",
-            "Last Activity Date"
-        ]
-
-        st.dataframe(
-            shortage_view[priority_cols],
-            use_container_width=True,
-            hide_index=True
-        )
-
-        st.download_button(
-            "Download Shortage Priority CSV",
-            shortage_view[priority_cols].to_csv(index=False).encode("utf-8"),
-            file_name="shortage_priority.csv",
-            mime="text/csv"
-        )
-
-        # ========================================================
-        # TABS
-        # ========================================================
-
-        tab1, tab2, tab3 = st.tabs([
-            "SKU Detail",
-            "Trend",
-            "Audit"
-        ])
-
-        # ========================================================
-        # SKU DETAIL
-        # ========================================================
-
-        with tab1:
-            st.subheader("SKU Detail")
-
-            sku_list = sorted(summary["SKU"].dropna().unique())
-
-            selected_sku = st.selectbox(
-                "Select SKU",
-                sku_list
-            )
-
-            sku_summary = summary[summary["SKU"] == selected_sku].copy()
-            sku_summary["Days Remaining"] = sku_summary["Days Remaining"].apply(format_days)
-
-            sku_summary_cols = [
-                "SKU",
-                "Description",
-                "Risk Level",
-                "Recommended Action",
-                "Ending Balance",
-                "Total Inbound",
-                "Total Outbound",
-                "Outbound Last 30 Days",
-                "Outbound Last 14 Days",
-                "Outbound Last 7 Days",
-                "Avg Daily Usage 30D",
-                "Days Remaining",
-                "Forecast Stockout Date",
-                "Last Activity Date"
-            ]
-
-            st.dataframe(
-                sku_summary[sku_summary_cols],
-                use_container_width=True,
-                hide_index=True
-            )
-
-            sku_tx = tx[tx["SKU"] == selected_sku].sort_values("Activity Date")
-
-            st.write("Transaction History")
-
-            tx_cols = [
-                "Source Row",
-                "Activity Date",
-                "Activity Text",
-                "Trans #",
-                "Ref #",
-                "Raw Qty Out",
-                "Qty In",
-                "Qty Out",
-                "Balance",
-                "Is Not Shipped"
-            ]
-
-            st.dataframe(
-                sku_tx[tx_cols],
-                use_container_width=True,
-                hide_index=True
-            )
-
-            if not sku_tx.empty:
-                fig_sku = px.line(
-                    sku_tx,
-                    x="Activity Date",
-                    y="Balance",
-                    markers=True,
-                    hover_data=["Trans #", "Ref #", "Qty In", "Qty Out"],
-                    title=f"Balance Trend - {selected_sku}"
-                )
-
-                st.plotly_chart(fig_sku, use_container_width=True)
-
-        # ========================================================
-        # TREND
-        # ========================================================
-
-        with tab2:
-            st.subheader("Daily Movement Trend")
-
-            daily = (
-                tx.groupby("Activity Date", as_index=False)[["Qty In", "Qty Out"]]
-                .sum()
-                .sort_values("Activity Date")
-            )
-
-            daily["Net Movement"] = daily["Qty In"] - daily["Qty Out"]
-
-            fig_out = px.line(
-                daily,
-                x="Activity Date",
-                y="Qty Out",
-                markers=True,
-                title="Daily Outbound"
-            )
-
-            st.plotly_chart(fig_out, use_container_width=True)
-
-            fig_net = px.bar(
-                daily,
-                x="Activity Date",
-                y="Net Movement",
-                title="Daily Net Movement"
-            )
-
-            st.plotly_chart(fig_net, use_container_width=True)
-
-            st.dataframe(
-                daily,
-                use_container_width=True,
-                hide_index=True
-            )
-
-        # ========================================================
-        # AUDIT
-        # ========================================================
-
-        with tab3:
-            st.subheader("Audit")
-
-            audit_choice = st.radio(
-                "Audit view",
-                [
-                    "Recent Outbound 30D",
-                    "Recent Outbound 14D",
-                    "Recent Outbound 7D",
-                    "Official Total Rows",
-                    "Official Ending Balance Rows",
-                    "Not Shipped Rows",
-                    "Cancelled Transactions"
-                ],
-                horizontal=True
-            )
-
-            if audit_choice == "Recent Outbound 30D":
-                audit_rows = recent_windows["30D"]["rows"]
-                st.caption(
-                    f"Window: {recent_windows['30D']['start'].date()} to {recent_windows['30D']['end'].date()}"
-                )
-
-            elif audit_choice == "Recent Outbound 14D":
-                audit_rows = recent_windows["14D"]["rows"]
-                st.caption(
-                    f"Window: {recent_windows['14D']['start'].date()} to {recent_windows['14D']['end'].date()}"
-                )
-
-            elif audit_choice == "Recent Outbound 7D":
-                audit_rows = recent_windows["7D"]["rows"]
-                st.caption(
-                    f"Window: {recent_windows['7D']['start'].date()} to {recent_windows['7D']['end'].date()}"
-                )
-
-            elif audit_choice == "Official Total Rows":
-                audit_rows = df[df["Movement Type"] == "Total"]
-
-            elif audit_choice == "Official Ending Balance Rows":
-                audit_rows = df[df["Movement Type"] == "Ending Balance"]
-
-            elif audit_choice == "Not Shipped Rows":
-                audit_rows = df[df["Is Not Shipped"] == True]
-
-            else:
-                audit_rows = df[df["Is Cancelled"] == True]
-
-            audit_cols = [
-                "Source Row",
-                "SKU",
-                "Description",
-                "Activity Date",
-                "Activity Text",
-                "Trans #",
-                "Ref #",
-                "Raw Qty In",
-                "Raw Qty Out",
-                "Raw Balance",
-                "Qty In",
-                "Qty Out",
-                "Balance",
-                "Movement Type",
-                "Is Not Shipped"
-            ]
-
-            st.dataframe(
-                audit_rows[audit_cols],
-                use_container_width=True,
-                hide_index=True
-            )
-
-            st.download_button(
-                "Download Audit CSV",
-                audit_rows[audit_cols].to_csv(index=False).encode("utf-8"),
-                file_name="audit_rows.csv",
-                mime="text/csv"
-            )
-
-        # ========================================================
-        # FOOTER DOWNLOADS
-        # ========================================================
-
-        st.divider()
-
-        d1, d2 = st.columns(2)
-
-        with d1:
-            st.download_button(
-                "Download Full Summary CSV",
-                summary.to_csv(index=False).encode("utf-8"),
-                file_name="inventory_shortage_summary.csv",
-                mime="text/csv"
-            )
-
-        with d2:
-            st.download_button(
-                "Download Cleaned Transactions CSV",
-                df.to_csv(index=False).encode("utf-8"),
-                file_name="cleaned_transactions.csv",
-                mime="text/csv"
-            )
-
-    except Exception as e:
-        st.error("Something went wrong while processing the file.")
-        st.write("Please confirm the uploaded file is an Item Activity Report.")
-        st.exception(e)
+st.title("Inventory Shortage / Prepare Dashboard")
+st.caption("Professional shortage-focused dashboard for Item Activity Report. CTN is intentionally ignored.")
+
+if uploaded is None:
+    st.info("Upload an Item Activity Report Excel file from the left sidebar to generate the dashboard.")
+    st.stop()
+
+try:
+    raw_df = load_excel_to_raw(uploaded)
+    model = build_inventory_model(raw_df)
+except Exception as exc:
+    st.error("File could not be processed. Please check if this is the correct Item Activity Report format.")
+    st.exception(exc)
+    st.stop()
+
+sku_df = model["sku_df"].copy()
+filtered = sku_df.copy()
+if show_risks:
+    filtered = filtered[filtered["Risk Level"].isin(show_risks)]
+filtered = filtered[filtered["Outbound Last 30 Days"] >= min_usage]
+if search_text.strip():
+    q = search_text.strip().lower()
+    filtered = filtered[
+        filtered["SKU"].astype(str).str.lower().str.contains(q, na=False)
+        | filtered["Description"].astype(str).str.lower().str.contains(q, na=False)
+    ]
+
+report_start = model["report_start"]
+report_end = model["report_end"]
+windows = model["windows"]
+
+st.markdown(
+    f"<div class='small-note'>Report Range: <b>{fmt_date(report_start)}</b> to <b>{fmt_date(report_end)}</b> | Recent windows are calculated from Report End Date.</div>",
+    unsafe_allow_html=True,
+)
+
+# KPI cards
+critical_count = int((sku_df["Risk Level"] == "Critical").sum())
+warning_count = int((sku_df["Risk Level"] == "Warning").sum())
+watch_count = int((sku_df["Risk Level"] == "Watch").sum())
+healthy_count = int((sku_df["Risk Level"] == "Healthy").sum())
+
+k1, k2, k3, k4 = st.columns(4)
+with k1:
+    metric_card("Total SKUs", fmt_num(len(sku_df)), f"Healthy: {healthy_count:,}")
+with k2:
+    metric_card("Critical SKUs", fmt_num(critical_count), "Need immediate inventory action")
+with k3:
+    metric_card("Warning SKUs", fmt_num(warning_count), "Need ETA / reserve review")
+with k4:
+    metric_card("Watch SKUs", fmt_num(watch_count), "Monitor usage trend")
+
+k5, k6, k7, k8 = st.columns(4)
+with k5:
+    metric_card("Ending Balance", fmt_num(sku_df["Ending Balance"].sum()), "From official Ending Balance rows")
+with k6:
+    metric_card("Official Total Outbound", fmt_num(sku_df["Official Total Outbound"].sum()), "From official Ref # = Total rows")
+with k7:
+    metric_card("Recent Outbound 30D", fmt_num(sku_df["Outbound Last 30 Days"].sum()), f"{fmt_date(windows['Outbound Last 30 Days'][0])} - {fmt_date(windows['Outbound Last 30 Days'][1])}")
+with k8:
+    metric_card("Recent Outbound 14D / 7D", f"{fmt_num(sku_df['Outbound Last 14 Days'].sum())} / {fmt_num(sku_df['Outbound Last 7 Days'].sum())}", "Dated Qty Out rows only")
+
+st.markdown("<div class='section-title'>Shortage Priority List</div>", unsafe_allow_html=True)
+st.markdown("<div class='section-subtitle'>Sorted by risk level, lowest days remaining, and recent outbound demand.</div>", unsafe_allow_html=True)
+
+priority_cols = [
+    "SKU",
+    "Description",
+    "Risk Level",
+    "Recommended Action",
+    "Ending Balance",
+    "Outbound Last 30 Days",
+    "Outbound Last 14 Days",
+    "Outbound Last 7 Days",
+    "Avg Daily Usage 30D",
+    "Days Remaining",
+    "Forecast Stockout Date",
+    "Last Activity Date",
+]
+
+priority_display = prepare_display(filtered[priority_cols])
+st.dataframe(priority_display, use_container_width=True, hide_index=True, height=460)
+
+st.download_button(
+    "⬇️ Download processed shortage report",
+    data=to_excel_bytes(model),
+    file_name=f"shortage_dashboard_export_{report_end.strftime('%Y%m%d')}.xlsx",
+    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+)
+
+# Tabs
+sku_tab, trend_tab, audit_tab = st.tabs(["SKU Detail", "Trend", "Audit"])
+
+with sku_tab:
+    left, right = st.columns([1, 2])
+    with left:
+        sku_options = filtered["SKU"].tolist() if not filtered.empty else sku_df["SKU"].tolist()
+        selected_sku = st.selectbox("Select SKU", options=sku_options)
+    selected = sku_df[sku_df["SKU"] == selected_sku].iloc[0]
+
+    d1, d2, d3, d4 = st.columns(4)
+    with d1:
+        metric_card("Risk Level", risk_badge_text(selected["Risk Level"]), selected["Recommended Action"])
+    with d2:
+        metric_card("Ending Balance", fmt_num(selected["Ending Balance"]), "Official Ending Balance")
+    with d3:
+        metric_card("Days Remaining", fmt_num(selected["Days Remaining"], 1), "Based on Avg Daily Usage 30D")
+    with d4:
+        metric_card("Forecast Stockout", fmt_date(selected["Forecast Stockout Date"]), "Forecast from report end date")
+
+    st.subheader(f"{selected_sku} — {selected['Description']}")
+    detail_cols = [
+        "Official Total Inbound",
+        "Official Total Outbound",
+        "Outbound Last 30 Days",
+        "Outbound Last 14 Days",
+        "Outbound Last 7 Days",
+        "Avg Daily Usage 30D",
+        "Last Activity Date",
+        "Official Total Row",
+        "Official Ending Row",
+    ]
+    detail = selected[detail_cols].to_frame("Value")
+    st.dataframe(detail, use_container_width=True)
+
+    tx_sku = model["tx_df"]
+    if not tx_sku.empty:
+        tx_sku = tx_sku[tx_sku["SKU"] == selected_sku].sort_values("Activity Date", ascending=False)
+        st.subheader("Dated outbound transactions")
+        st.dataframe(tx_sku, use_container_width=True, hide_index=True, height=360)
+
+with trend_tab:
+    st.subheader("Outbound Trend")
+    trend_df = model["trend_df"]
+    if trend_df.empty:
+        st.info("No dated outbound transactions found.")
+    else:
+        fig = px.line(trend_df, x="Activity Date", y="Qty Out", markers=True, title="Daily Outbound Qty")
+        fig.update_layout(height=420, margin=dict(l=10, r=10, t=50, b=10))
+        st.plotly_chart(fig, use_container_width=True)
+
+        top_usage = sku_df.sort_values("Outbound Last 30 Days", ascending=False).head(20)
+        fig2 = px.bar(top_usage, x="SKU", y="Outbound Last 30 Days", hover_data=["Description", "Risk Level"], title="Top 20 SKUs by Outbound Last 30 Days")
+        fig2.update_layout(height=440, margin=dict(l=10, r=10, t=50, b=10))
+        st.plotly_chart(fig2, use_container_width=True)
+
+with audit_tab:
+    st.subheader("Audit Checks")
+    st.caption("Use this tab only to verify calculation sources and official rows.")
+
+    a1, a2, a3, a4 = st.columns(4)
+    with a1:
+        metric_card("Official Total Rows", fmt_num(len(model["official_total_df"])), "Ref # = Total")
+    with a2:
+        metric_card("Official Ending Rows", fmt_num(len(model["official_ending_df"])), "Activity Date = Ending Balance")
+    with a3:
+        metric_card("Not Shipped Rows", fmt_num(len(model["not_shipped_df"])), "Still counted if Qty Out > 0")
+    with a4:
+        metric_card("Cancelled Transactions", fmt_num(len(model["cancelled_df"])), "For review only")
+
+    audit_choice = st.radio(
+        "Audit table",
+        [
+            "Recent Outbound 30D",
+            "Recent Outbound 14D",
+            "Recent Outbound 7D",
+            "Official Total Rows",
+            "Official Ending Balance Rows",
+            "Not Shipped Rows",
+            "Cancelled Transactions",
+        ],
+        horizontal=True,
+    )
+
+    if audit_choice.startswith("Recent Outbound"):
+        label_map = {
+            "Recent Outbound 30D": "Outbound Last 30 Days",
+            "Recent Outbound 14D": "Outbound Last 14 Days",
+            "Recent Outbound 7D": "Outbound Last 7 Days",
+        }
+        label = label_map[audit_choice]
+        start, end = windows[label]
+        tx = model["tx_df"]
+        if tx.empty:
+            st.info("No dated outbound transactions found.")
+        else:
+            audit_tx = tx[(tx["Activity Date"] >= start) & (tx["Activity Date"] <= end)].copy()
+            st.write(f"Window: **{fmt_date(start)} – {fmt_date(end)}**")
+            st.dataframe(audit_tx.sort_values(["SKU", "Activity Date"]), use_container_width=True, hide_index=True, height=520)
+    elif audit_choice == "Official Total Rows":
+        st.dataframe(model["official_total_df"], use_container_width=True, hide_index=True, height=520)
+    elif audit_choice == "Official Ending Balance Rows":
+        st.dataframe(model["official_ending_df"], use_container_width=True, hide_index=True, height=520)
+    elif audit_choice == "Not Shipped Rows":
+        st.dataframe(model["not_shipped_df"], use_container_width=True, hide_index=True, height=520)
+    elif audit_choice == "Cancelled Transactions":
+        st.dataframe(model["cancelled_df"], use_container_width=True, hide_index=True, height=520)
