@@ -599,7 +599,7 @@ st.sidebar.markdown("""
 - **Healthy:** More than 30 days remaining
 - **No Recent Demand:** Outbound 30D = 0
 
-Recent windows include the report date and count backward by valid working days only, excluding Saturdays, Sundays, and US federal holidays. Not Shipped and Cancelled rows are still counted when Qty Out > 0.
+Recent windows include the report date and count backward by valid working days only, excluding Saturdays, Sundays, and US federal holidays.
 """)
 
 # ============================================================
