@@ -470,7 +470,6 @@ def to_excel_bytes(model: dict) -> bytes:
 # Sidebar controls
 # ============================================================
 st.sidebar.title("📦 Inventory Dashboard")
-st.sidebar.caption("Upload Item Activity Report Excel để tự động build shortage report.")
 
 uploaded = st.sidebar.file_uploader(
     "Drop Excel file here",
