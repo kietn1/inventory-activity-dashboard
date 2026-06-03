@@ -705,8 +705,12 @@ with sku_tab:
         "Official Ending Row",
     ]
     detail = selected[detail_cols].to_frame("Value")
-    detail["Value"] = detail["Value"].apply(lambda x: round(float(x), 2) if isinstance(x, (int, float, np.integer, np.floating)) and np.isfinite(x) else x)
-    st.dataframe(display_table(detail), use_container_width=True)
+    detail["Value"] = detail.apply(
+        lambda r: fmt_date(r["Value"]) if "date" in str(r.name).lower()
+        else (fmt_num(r["Value"], 2) if isinstance(r["Value"], (int, float, np.integer, np.floating)) and np.isfinite(r["Value"]) else r["Value"]),
+        axis=1,
+    )
+    st.dataframe(detail, use_container_width=True)
 
     tx_sku = model["tx_df"]
     if not tx_sku.empty:
