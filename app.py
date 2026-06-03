@@ -44,6 +44,96 @@ st.markdown(
 )
 
 
+
+
+st.markdown(
+    """
+    <style>
+        /* Website-style enhancements */
+        .hero-card {
+            border: 1px solid #E5E7EB;
+            border-radius: 22px;
+            padding: 24px 28px;
+            background: linear-gradient(135deg, #0F172A 0%, #1E3A8A 55%, #2563EB 100%);
+            color: white;
+            box-shadow: 0 14px 30px rgba(15, 23, 42, 0.18);
+            margin-bottom: 18px;
+        }
+        .hero-eyebrow {
+            font-size: 0.78rem;
+            font-weight: 700;
+            letter-spacing: .08em;
+            text-transform: uppercase;
+            color: #BFDBFE;
+            margin-bottom: 8px;
+        }
+        .hero-title {
+            font-size: 2.05rem;
+            font-weight: 850;
+            line-height: 1.12;
+            margin-bottom: 8px;
+        }
+        .hero-subtitle {
+            font-size: 0.98rem;
+            color: #DBEAFE;
+            max-width: 950px;
+        }
+        .summary-card {
+            border: 1px solid #D9EAFD;
+            border-radius: 16px;
+            padding: 16px 18px;
+            background: #F0F7FF;
+            color: #1D4ED8;
+            font-weight: 650;
+            margin: 14px 0 18px 0;
+        }
+        .summary-card span {
+            color: #0F172A;
+            font-weight: 800;
+        }
+        .quality-card {
+            border: 1px solid #E5E7EB;
+            border-radius: 14px;
+            padding: 14px 14px;
+            background: #FFFFFF;
+            box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
+        }
+        .quality-label {font-size:0.78rem;color:#667085;font-weight:700;margin-bottom:4px;}
+        .quality-value {font-size:0.98rem;color:#101828;font-weight:800;}
+        .quality-ok {color:#027A48;}
+        .upload-card {
+            border: 1px dashed #93C5FD;
+            border-radius: 20px;
+            padding: 28px;
+            background: linear-gradient(180deg, #EFF6FF 0%, #FFFFFF 100%);
+            text-align: center;
+            margin-top: 24px;
+        }
+        .upload-title {font-size:1.25rem;font-weight:850;color:#101828;margin-bottom:8px;}
+        .upload-subtitle {font-size:0.95rem;color:#667085;}
+        .sidebar-section-label {
+            font-size: 0.72rem;
+            font-weight: 800;
+            color: #475467;
+            letter-spacing: .08em;
+            text-transform: uppercase;
+            margin-top: 4px;
+            margin-bottom: -4px;
+        }
+        .export-card {
+            border: 1px solid #E5E7EB;
+            border-radius: 16px;
+            padding: 16px;
+            background: #FCFCFD;
+            margin: 12px 0 18px 0;
+        }
+        .export-title {font-weight:800;color:#101828;margin-bottom:4px;}
+        .export-subtitle {font-size:0.86rem;color:#667085;margin-bottom:10px;}
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 # ============================================================
 # Utility functions
 # ============================================================
@@ -492,6 +582,51 @@ def metric_card(label, value, help_text=""):
     )
 
 
+
+def hero_header(report_start=None, report_end=None, uploaded_name: str = ""):
+    if report_start is not None and report_end is not None:
+        meta = f"Report Range: {fmt_date(report_start)} to {fmt_date(report_end)}"
+        if uploaded_name:
+            meta += f" · Source: {uploaded_name}"
+    else:
+        meta = "Upload an Item Activity Report Excel file to generate shortage priority, usage trend, and stockout forecast."
+    st.markdown(
+        f"""
+        <div class="hero-card">
+            <div class="hero-eyebrow">Inventory Control · Shortage Planning</div>
+            <div class="hero-title">Inventory Shortage / Prepare Dashboard</div>
+            <div class="hero-subtitle">{meta}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def executive_summary(critical_count, warning_count, watch_count, recent_30d, report_end):
+    st.markdown(
+        f"""
+        <div class="summary-card">
+            <span>{critical_count:,}</span> critical SKUs need immediate action, 
+            <span>{warning_count:,}</span> warning SKUs need ETA / reserve review, and 
+            <span>{watch_count:,}</span> watch SKUs should be monitored. 
+            Recent 30D outbound is <span>{fmt_num(recent_30d)}</span> pcs based on valid working days through <span>{fmt_date(report_end)}</span>.
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def quality_card(label, value, status="OK"):
+    st.markdown(
+        f"""
+        <div class="quality-card">
+            <div class="quality-label">{label}</div>
+            <div class="quality-value"><span class="quality-ok">✓ {status}</span> · {value}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
 def round_numeric_columns(df: pd.DataFrame) -> pd.DataFrame:
     out = df.copy()
     numeric_cols = out.select_dtypes(include=["number"]).columns
@@ -578,8 +713,9 @@ def show_limited_dataframe(df: pd.DataFrame, height: int = 420, limit: int = 500
 # ============================================================
 # Sidebar controls
 # ============================================================
-st.sidebar.title("📦 Inventory Dashboard")
+st.sidebar.title("📦 Inventory Control")
 st.sidebar.caption("Upload Excel file to generate shortage report.")
+st.sidebar.markdown('<div class="sidebar-section-label">Upload</div>', unsafe_allow_html=True)
 
 uploaded = st.sidebar.file_uploader(
     "Drop Excel file here",
@@ -588,6 +724,7 @@ uploaded = st.sidebar.file_uploader(
 )
 
 st.sidebar.divider()
+st.sidebar.markdown('<div class="sidebar-section-label">Filters</div>', unsafe_allow_html=True)
 st.sidebar.subheader("Risk Filter")
 with st.sidebar.form("filter_form"):
     show_risks = st.multiselect(
@@ -601,6 +738,7 @@ with st.sidebar.form("filter_form"):
     st.form_submit_button("Apply Filters")
 
 st.sidebar.divider()
+st.sidebar.markdown('<div class="sidebar-section-label">Rules</div>', unsafe_allow_html=True)
 st.sidebar.markdown("""
 #### Risk Level Notes
 
@@ -616,11 +754,18 @@ Recent windows include the report date and count backward by valid working days 
 # ============================================================
 # Main app
 # ============================================================
-st.title("Inventory Shortage / Prepare Dashboard")
-st.caption("Shortage-focused dashboard for Item Activity Report.")
+hero_header()
 
 if uploaded is None:
-    st.info("Upload an Item Activity Report Excel file from the left sidebar to generate the dashboard.")
+    st.markdown(
+        """
+        <div class="upload-card">
+            <div class="upload-title">Upload your Item Activity Report Excel file</div>
+            <div class="upload-subtitle">The dashboard will automatically calculate shortage priority, recent outbound, and stockout forecast.</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
     st.stop()
 
 try:
@@ -647,8 +792,9 @@ report_start = model["report_start"]
 report_end = model["report_end"]
 windows = model["windows"]
 
+hero_header(report_start, report_end, uploaded.name if uploaded is not None else "")
 st.markdown(
-    f"<div class='small-note'>Report Range: <b>{fmt_date(report_start)}</b> to <b>{fmt_date(report_end)}</b> | Recent windows use valid working days, including the report date.</div>",
+    f"<div class='small-note'>Recent windows use valid working days, including the report date. Saturdays, Sundays, and US federal holidays are excluded from the window. Not Shipped and Cancelled rows are counted when Qty Out > 0.</div>",
     unsafe_allow_html=True,
 )
 
@@ -657,6 +803,14 @@ critical_count = int((sku_df["Risk Level"] == "Critical").sum())
 warning_count = int((sku_df["Risk Level"] == "Warning").sum())
 watch_count = int((sku_df["Risk Level"] == "Watch").sum())
 healthy_count = int((sku_df["Risk Level"] == "Healthy").sum())
+
+executive_summary(
+    critical_count,
+    warning_count,
+    watch_count,
+    sku_df["Outbound Last 30 Days"].sum(),
+    report_end,
+)
 
 k1, k2, k3, k4 = st.columns(4)
 with k1:
@@ -678,33 +832,53 @@ with k7:
 with k8:
     metric_card("Recent Outbound 14D / 7D", f"{fmt_num(sku_df['Outbound Last 14 Days'].sum())} / {fmt_num(sku_df['Outbound Last 7 Days'].sum())}", "Dated Qty Out rows only")
 
+st.markdown("<div class='section-title'>Data Quality Status</div>", unsafe_allow_html=True)
+q1, q2, q3, q4 = st.columns(4)
+with q1:
+    quality_card("Official Total Rows", f"{len(model['official_total_df']):,} rows", "Checked")
+with q2:
+    quality_card("Ending Balance Rows", f"{len(model['official_ending_df']):,} rows", "Checked")
+with q3:
+    quality_card("Not Shipped", f"{len(model['not_shipped_df']):,} rows included if Qty Out > 0", "Included")
+with q4:
+    quality_card("Cancelled", f"{len(model['cancelled_df']):,} rows included if Qty Out > 0", "Included")
+
 st.markdown("<div class='section-title'>Shortage Priority List</div>", unsafe_allow_html=True)
 st.markdown("<div class='section-subtitle'>Sorted by risk level, lowest days remaining, and recent outbound demand.</div>", unsafe_allow_html=True)
 
 priority_cols = [
+    "Risk Level",
     "SKU",
     "Description",
-    "Risk Level",
     "Recommended Action",
+    "Days Remaining",
+    "Forecast Stockout Date",
     "Ending Balance",
     "Outbound Last 30 Days",
     "Outbound Last 14 Days",
     "Outbound Last 7 Days",
     "Avg Daily Usage 30D",
-    "Days Remaining",
-    "Forecast Stockout Date",
     "Last Activity Date",
 ]
 
 priority_display = prepare_display(filtered[priority_cols])
 st.dataframe(priority_display, use_container_width=True, hide_index=True, height=460)
 
+st.markdown(
+    """
+    <div class="export-card">
+        <div class="export-title">Export Report</div>
+        <div class="export-subtitle">Download the processed shortage report with audit sheets for review or sharing.</div>
+    """,
+    unsafe_allow_html=True,
+)
 st.download_button(
     "⬇️ Download processed shortage report",
     data=to_excel_bytes(model),
     file_name=f"shortage_dashboard_export_{report_end.strftime('%Y%m%d')}.xlsx",
     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 )
+st.markdown("</div>", unsafe_allow_html=True)
 
 # Tabs
 sku_tab, trend_tab, audit_tab = st.tabs(["SKU Detail", "Trend", "Audit"])
