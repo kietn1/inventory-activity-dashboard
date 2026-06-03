@@ -493,6 +493,22 @@ def round_numeric_columns(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+def format_date_columns(df: pd.DataFrame) -> pd.DataFrame:
+    out = df.copy()
+    date_keywords = ("date", "activity date", "forecast stockout", "last activity")
+    for col in out.columns:
+        col_lower = str(col).lower()
+        if any(keyword in col_lower for keyword in date_keywords):
+            parsed = pd.to_datetime(out[col], errors="coerce")
+            if parsed.notna().any():
+                out[col] = parsed.dt.strftime("%m/%d/%Y").replace("NaT", "")
+    return out
+
+
+def display_table(df: pd.DataFrame) -> pd.DataFrame:
+    return format_date_columns(round_numeric_columns(df))
+
+
 def prepare_display(df: pd.DataFrame) -> pd.DataFrame:
     out = df.copy()
     out["Risk Level"] = out["Risk Level"].map(risk_badge_text)
@@ -512,12 +528,12 @@ def prepare_display(df: pd.DataFrame) -> pd.DataFrame:
 def to_excel_bytes(model: dict) -> bytes:
     output = BytesIO()
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
-        round_numeric_columns(prepare_display(model["sku_df"]).drop(columns=["Risk Sort"], errors="ignore")).to_excel(writer, sheet_name="Shortage Priority", index=False)
-        round_numeric_columns(model["tx_df"]).to_excel(writer, sheet_name="Dated Transactions", index=False)
-        round_numeric_columns(model["official_total_df"]).to_excel(writer, sheet_name="Official Total Rows", index=False)
-        round_numeric_columns(model["official_ending_df"]).to_excel(writer, sheet_name="Ending Balance Rows", index=False)
-        round_numeric_columns(model["not_shipped_df"]).to_excel(writer, sheet_name="Not Shipped Rows", index=False)
-        round_numeric_columns(model["cancelled_df"]).to_excel(writer, sheet_name="Cancelled Rows", index=False)
+        display_table(prepare_display(model["sku_df"]).drop(columns=["Risk Sort"], errors="ignore")).to_excel(writer, sheet_name="Shortage Priority", index=False)
+        display_table(model["tx_df"]).to_excel(writer, sheet_name="Dated Transactions", index=False)
+        display_table(model["official_total_df"]).to_excel(writer, sheet_name="Official Total Rows", index=False)
+        display_table(model["official_ending_df"]).to_excel(writer, sheet_name="Ending Balance Rows", index=False)
+        display_table(model["not_shipped_df"]).to_excel(writer, sheet_name="Not Shipped Rows", index=False)
+        display_table(model["cancelled_df"]).to_excel(writer, sheet_name="Cancelled Rows", index=False)
 
         for worksheet in writer.sheets.values():
             for row in worksheet.iter_rows(min_row=2):
@@ -690,13 +706,13 @@ with sku_tab:
     ]
     detail = selected[detail_cols].to_frame("Value")
     detail["Value"] = detail["Value"].apply(lambda x: round(float(x), 2) if isinstance(x, (int, float, np.integer, np.floating)) and np.isfinite(x) else x)
-    st.dataframe(detail, use_container_width=True)
+    st.dataframe(display_table(detail), use_container_width=True)
 
     tx_sku = model["tx_df"]
     if not tx_sku.empty:
         tx_sku = tx_sku[tx_sku["SKU"] == selected_sku].sort_values("Activity Date", ascending=False)
         st.subheader("Dated outbound transactions")
-        st.dataframe(round_numeric_columns(tx_sku), use_container_width=True, hide_index=True, height=360)
+        st.dataframe(display_table(tx_sku), use_container_width=True, hide_index=True, height=360)
 
 with trend_tab:
     st.subheader("Outbound Trend")
@@ -704,7 +720,9 @@ with trend_tab:
     if trend_df.empty:
         st.info("No dated outbound transactions found.")
     else:
-        fig = px.line(trend_df, x="Activity Date", y="Qty Out", markers=True, title="Daily Outbound Qty")
+        trend_plot = trend_df.copy()
+        trend_plot["Activity Date"] = pd.to_datetime(trend_plot["Activity Date"]).dt.strftime("%m/%d/%Y")
+        fig = px.line(trend_plot, x="Activity Date", y="Qty Out", markers=True, title="Daily Outbound Qty")
         fig.update_layout(height=420, margin=dict(l=10, r=10, t=50, b=10))
         st.plotly_chart(fig, use_container_width=True)
 
@@ -756,12 +774,12 @@ with audit_tab:
             valid_dates = model["window_dates"][label]
             audit_tx = tx[tx["Activity Date"].isin(valid_dates)].copy()
             st.write(f"Window: **{fmt_date(start)} – {fmt_date(end)}** | Valid working dates counted: **{len(valid_dates)}**")
-            st.dataframe(round_numeric_columns(audit_tx.sort_values(["SKU", "Activity Date"])), use_container_width=True, hide_index=True, height=520)
+            st.dataframe(display_table(audit_tx.sort_values(["SKU", "Activity Date"])), use_container_width=True, hide_index=True, height=520)
     elif audit_choice == "Official Total Rows":
-        st.dataframe(round_numeric_columns(model["official_total_df"]), use_container_width=True, hide_index=True, height=520)
+        st.dataframe(display_table(model["official_total_df"]), use_container_width=True, hide_index=True, height=520)
     elif audit_choice == "Official Ending Balance Rows":
-        st.dataframe(round_numeric_columns(model["official_ending_df"]), use_container_width=True, hide_index=True, height=520)
+        st.dataframe(display_table(model["official_ending_df"]), use_container_width=True, hide_index=True, height=520)
     elif audit_choice == "Not Shipped Rows":
-        st.dataframe(round_numeric_columns(model["not_shipped_df"]), use_container_width=True, hide_index=True, height=520)
+        st.dataframe(display_table(model["not_shipped_df"]), use_container_width=True, hide_index=True, height=520)
     elif audit_choice == "Cancelled Transactions":
-        st.dataframe(round_numeric_columns(model["cancelled_df"]), use_container_width=True, hide_index=True, height=520)
+        st.dataframe(display_table(model["cancelled_df"]), use_container_width=True, hide_index=True, height=520)
