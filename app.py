@@ -164,7 +164,7 @@ def find_header_row(raw: pd.DataFrame) -> int:
         row_values = [clean_text(x).lower() for x in raw.iloc[idx].tolist()]
         if "sku" in row_values and "activity date" in row_values and "ref #" in row_values:
             return idx
-    raise ValueError("Không tìm thấy header row có SKU / Activity Date / Ref #.")
+    raise ValueError("Cannot find a header row with SKU / Activity Date / Ref #.")
 
 
 def extract_report_range(raw: pd.DataFrame):
@@ -428,7 +428,7 @@ def build_inventory_model(raw: pd.DataFrame) -> dict:
     windows = {label: (dates[0], dates[-1]) for label, dates in window_dates.items()}
 
     if sku_df.empty:
-        raise ValueError("Không tìm thấy SKU nào trong file.")
+        raise ValueError("No SKU sections were found in the file.")
 
     for label, dates in window_dates.items():
         if tx_df.empty:
