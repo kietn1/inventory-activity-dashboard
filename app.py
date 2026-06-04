@@ -12,7 +12,7 @@ from pandas.tseries.holiday import USFederalHolidayCalendar
 # Streamlit page setup
 # ============================================================
 st.set_page_config(
-    page_title="Inventory Shortage Dashboard",
+    page_title="Newark Inventory Shortage Dashboard",
     page_icon="📦",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -21,24 +21,33 @@ st.set_page_config(
 st.markdown(
     """
     <style>
+        :root { --soft-bg:#F5F5F7; --card:#FFFFFF; --text:#111827; --muted:#6B7280; --line:rgba(17,24,39,.10); }
         .main .block-container {padding-top: 0.9rem; padding-bottom: 1.4rem; max-width: 1500px;}
         header, footer {visibility: hidden;}
         .kpi-card {
-            border: 1px solid rgba(0,0,0,0.08);
+            border: 1px solid var(--line);
             border-radius: 18px;
             padding: 16px 16px 13px 16px;
-            background: rgba(255,255,255,0.86);
-            box-shadow: 0 6px 24px rgba(16, 24, 40, 0.06);
+            background: rgba(255,255,255,0.88);
+            box-shadow: 0 8px 28px rgba(16, 24, 40, 0.07);
             min-height: 104px;
         }
         .kpi-label {font-size: 0.82rem; color:#6B7280; font-weight: 650; margin-bottom: 7px;}
-        .kpi-value {font-size: 1.75rem; color:#111827; font-weight: 800; line-height: 1.08; letter-spacing:-0.03em;}
+        .kpi-value {font-size: 1.72rem; color:#111827; font-weight: 800; line-height: 1.08; letter-spacing:-0.03em;}
         .kpi-help {font-size: 0.76rem; color:#9CA3AF; margin-top: 8px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
         .section-title {font-size:1.12rem; font-weight:800; color:#111827; margin-top: 0.3rem;}
         .section-subtitle {font-size:0.84rem; color:#6B7280; margin-bottom: 0.7rem;}
         .small-note {font-size:0.81rem; color:#6B7280;}
+        .sidebar-note {
+            background: #FFFFFF;
+            border: 1px solid rgba(17,24,39,.08);
+            border-radius: 16px;
+            padding: 14px 14px 8px 14px;
+            box-shadow: 0 4px 18px rgba(16,24,40,.05);
+        }
         div[data-testid="stDataFrame"] {border-radius: 14px; overflow: hidden;}
-        div[data-testid="stSidebar"] {background:#F8FAFC;}
+        div[data-testid="stSidebar"] {background:#F5F5F7;}
+        div[data-testid="stSidebar"] h1 {font-size: 1.35rem;}
     </style>
     """,
     unsafe_allow_html=True,
@@ -567,12 +576,12 @@ def show_limited_dataframe(df: pd.DataFrame, height: int = 420, limit: int = 500
 # ============================================================
 # Sidebar controls
 # ============================================================
-st.sidebar.title("📦 Inventory Dashboard")
+st.sidebar.title("📦 Newark Inventory")
 
 uploaded = st.sidebar.file_uploader(
-    "Drop Excel file here",
+    "Drop Newark Item Activity Report here",
     type=["xlsx", "xls"],
-    help="File format similar to the Item Activity Report.",
+    help="Expected format: SKU in column A, Description in C, Activity Date in H, Ref # in K, Qty In in M, Qty Out in O, Balance in T.",
 )
 
 st.sidebar.divider()
@@ -583,39 +592,43 @@ with st.sidebar.form("filter_form"):
         options=["Critical", "Warning", "Watch", "Healthy"],
         default=["Critical", "Warning", "Watch"],
     )
-
     min_usage = st.number_input("Minimum Outbound Last 30 Days", min_value=0, value=0, step=1)
     search_text = st.text_input("Search SKU / Description", placeholder="Example: SBED, BACKUP SWITCH...")
     st.form_submit_button("Apply Filters")
 
 st.sidebar.divider()
-st.sidebar.markdown("""
-#### Risk Level Notes
+st.sidebar.markdown(
+    """
+    <div class="sidebar-note">
+    <b>Risk Level Notes</b><br><br>
+    🔴 <b>Critical:</b> 0–7 days remaining<br>
+    🟠 <b>Warning:</b> 8–14 days remaining<br>
+    🟡 <b>Watch:</b> 15–30 days remaining<br>
+    🟢 <b>Healthy:</b> More than 30 days remaining<br><br>
+    <span style="color:#6B7280;font-size:0.84rem;">
+    Recent windows include the report date and count backward by valid working days only, excluding Saturdays, Sundays, and US federal holidays.
+    </span>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
 
-- **Critical:** 0–7 days remaining
-- **Warning:** 8–14 days remaining
-- **Watch:** 15–30 days remaining
-- **Healthy:** More than 30 days remaining
-- **No Recent Demand:** Outbound 30D = 0
-
-Recent windows include the report date and count backward by valid working days only, excluding Saturdays, Sundays, and US federal holidays.
-""")
 
 # ============================================================
 # Main app
 # ============================================================
-st.title("Inventory Shortage")
-st.caption("Shortage dashboard for Item Activity Report.")
+st.title("Newark Inventory Shortage")
+st.caption("Built for the Newark Item Activity Report format.")
 
 if uploaded is None:
-    st.info("Upload an Item Activity Report Excel file from the left sidebar to generate the dashboard.")
+    st.info("Upload the Newark Item Activity Report Excel file from the left sidebar to generate the dashboard.")
     st.stop()
 
 try:
     file_bytes = uploaded.getvalue()
     model = process_excel_file(file_bytes)
 except Exception as exc:
-    st.error("File could not be processed. Please check if this is the correct Item Activity Report format.")
+    st.error("File could not be processed. Please check if this is the Newark Item Activity Report format.")
     st.exception(exc)
     st.stop()
 
@@ -636,7 +649,7 @@ report_end = model["report_end"]
 windows = model["windows"]
 
 st.markdown(
-    f"<div class='small-note'>Report Range: <b>{fmt_date(report_start)}</b> to <b>{fmt_date(report_end)}</b> | Recent windows use valid working days, including the report date.</div>",
+    f"<div class='small-note'>Report Range: <b>{fmt_date(report_start)}</b> to <b>{fmt_date(report_end)}</b> | Recent windows use valid working days, including report date.</div>",
     unsafe_allow_html=True,
 )
 
@@ -660,7 +673,7 @@ k5, k6, k7, k8 = st.columns(4)
 with k5:
     metric_card("Ending Balance", fmt_num(sku_df["Ending Balance"].sum()), "From official Ending Balance rows")
 with k6:
-    metric_card("Official Total Outbound", fmt_num(sku_df["Official Total Outbound"].sum()), "From official Ref # = Total rows")
+    metric_card("Official Total Outbound", fmt_num(sku_df["Official Total Outbound"].sum()), "From Ref # = Total rows")
 with k7:
     metric_card("Recent Outbound 30D", fmt_num(sku_df["Outbound Last 30 Days"].sum()), f"{fmt_date(windows['Outbound Last 30 Days'][0])} - {fmt_date(windows['Outbound Last 30 Days'][1])}")
 with k8:
@@ -675,6 +688,7 @@ priority_cols = [
     "Risk Level",
     "Recommended Action",
     "Ending Balance",
+    "Official Total Outbound",
     "Outbound Last 30 Days",
     "Outbound Last 14 Days",
     "Outbound Last 7 Days",
@@ -688,62 +702,64 @@ priority_display = prepare_display(filtered[priority_cols])
 show_limited_dataframe(priority_display, height=440, limit=250)
 
 with st.expander("Export", expanded=False):
-    st.caption("Excel export is generated only when this section is opened, so the dashboard stays fast while filtering.")
+    st.caption("Excel export is generated only when this section is opened, so dashboard filtering stays fast.")
     st.download_button(
         "⬇️ Download processed shortage report",
         data=to_excel_bytes(model),
-        file_name=f"shortage_dashboard_export_{report_end.strftime('%Y%m%d')}.xlsx",
+        file_name=f"newark_shortage_dashboard_export_{report_end.strftime('%Y%m%d')}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
 
 # Tabs
-sku_tab, trend_tab, audit_tab = st.tabs(["SKU Detail", "Trend", "Audit"])
+sku_tab, trend_tab, audit_tab, guide_tab = st.tabs(["SKU Detail", "Trend", "Audit", "Guide"])
 
 with sku_tab:
-    left, right = st.columns([1, 2])
-    with left:
-        sku_options = filtered["SKU"].tolist() if not filtered.empty else sku_df["SKU"].tolist()
-        selected_sku = st.selectbox("Select SKU", options=sku_options)
-    selected = sku_df[sku_df["SKU"] == selected_sku].iloc[0]
+    if filtered.empty:
+        st.warning("No SKU matches the current filters.")
+    else:
+        left, right = st.columns([1, 2])
+        with left:
+            selected_sku = st.selectbox("Select SKU", options=filtered["SKU"].tolist())
+        selected = sku_df[sku_df["SKU"] == selected_sku].iloc[0]
 
-    d1, d2, d3, d4 = st.columns(4)
-    with d1:
-        metric_card("Risk Level", risk_badge_text(selected["Risk Level"]), selected["Recommended Action"])
-    with d2:
-        metric_card("Ending Balance", fmt_num(selected["Ending Balance"]), "Official Ending Balance")
-    with d3:
-        metric_card("Days Remaining", fmt_num(selected["Days Remaining"]), "Based on Avg Daily Usage 30D")
-    with d4:
-        metric_card("Forecast Stockout", fmt_date(selected["Forecast Stockout Date"]), "Forecast from report end date")
+        d1, d2, d3, d4 = st.columns(4)
+        with d1:
+            metric_card("Risk Level", risk_badge_text(selected["Risk Level"]), selected["Recommended Action"])
+        with d2:
+            metric_card("Ending Balance", fmt_num(selected["Ending Balance"]), "Official ending balance")
+        with d3:
+            metric_card("Days Remaining", fmt_num(selected["Days Remaining"]), "Based on Avg Daily Usage 30D")
+        with d4:
+            metric_card("Forecast Stockout", fmt_date(selected["Forecast Stockout Date"]), "Valid working days only")
 
-    st.subheader(f"{selected_sku} — {selected['Description']}")
-    detail_cols = [
-        "Official Total Inbound",
-        "Official Total Outbound",
-        "Outbound Last 30 Days",
-        "Outbound Last 14 Days",
-        "Outbound Last 7 Days",
-        "Avg Daily Usage 30D",
-        "Last Activity Date",
-        "Official Total Row",
-        "Official Ending Row",
-    ]
-    detail = selected[detail_cols].to_frame("Value")
-    detail["Value"] = detail.apply(
-        lambda r: fmt_date(r["Value"]) if "date" in str(r.name).lower()
-        else (
-            fmt_num(r["Value"], 2) if str(r.name) == "Avg Daily Usage 30D"
-            else (fmt_num(r["Value"]) if isinstance(r["Value"], (int, float, np.integer, np.floating)) and np.isfinite(r["Value"]) else r["Value"])
-        ),
-        axis=1,
-    )
-    st.dataframe(detail, use_container_width=True)
+        st.subheader(f"{selected_sku} — {selected['Description']}")
+        detail_cols = [
+            "Official Total Inbound",
+            "Official Total Outbound",
+            "Outbound Last 30 Days",
+            "Outbound Last 14 Days",
+            "Outbound Last 7 Days",
+            "Avg Daily Usage 30D",
+            "Last Activity Date",
+            "Official Total Row",
+            "Official Ending Row",
+        ]
+        detail = selected[detail_cols].to_frame("Value")
+        detail["Value"] = detail.apply(
+            lambda r: fmt_date(r["Value"]) if "date" in str(r.name).lower()
+            else (
+                fmt_num(r["Value"], 2) if str(r.name) == "Avg Daily Usage 30D"
+                else (fmt_num(r["Value"]) if isinstance(r["Value"], (int, float, np.integer, np.floating)) and np.isfinite(r["Value"]) else r["Value"])
+            ),
+            axis=1,
+        )
+        st.dataframe(detail, use_container_width=True)
 
-    tx_sku = model["tx_df"]
-    if not tx_sku.empty:
-        tx_sku = tx_sku[tx_sku["SKU"] == selected_sku].sort_values("Activity Date", ascending=False)
-        st.subheader("Dated outbound transactions")
-        show_limited_dataframe(tx_sku, height=340, limit=250)
+        tx_sku = model["tx_df"]
+        if not tx_sku.empty:
+            tx_sku = tx_sku[tx_sku["SKU"] == selected_sku].sort_values("Activity Date", ascending=False)
+            st.subheader("Dated outbound transactions")
+            show_limited_dataframe(tx_sku, height=340, limit=250)
 
 with trend_tab:
     st.subheader("Outbound Trend")
@@ -760,7 +776,7 @@ with trend_tab:
 
 with audit_tab:
     st.subheader("Audit Checks")
-    st.caption("Use this tab to verify recent outbound calculations and official source rows.")
+    st.caption("Verify recent outbound calculations and official source rows from the Newark format.")
 
     # Recent outbound summary cards
     st.markdown("**Recent Outbound Audit**")
@@ -836,3 +852,22 @@ with audit_tab:
         show_limited_dataframe(model["not_shipped_df"], height=420)
     elif audit_choice == "Cancelled Transactions":
         show_limited_dataframe(model["cancelled_df"], height=420)
+
+
+with guide_tab:
+    st.subheader("How this app reads the Newark file")
+    st.markdown(
+        """
+        **Expected source format**
+        - SKU section row: **Column A = SKU**, **Column C = Description**
+        - Transaction rows: **Column H = Activity Date**, **J = Trans. #**, **K = Ref #**, **M = Qty In**, **O = Qty Out**, **T = Balance**
+        - Official total row: **Column K / Ref # = Total**
+        - Ending balance row: **Column H / Activity Date = Ending Balance**
+
+        **Shortage logic**
+        - Recent outbound windows count backward from the report end date by valid working days only.
+        - Valid working days exclude Saturdays, Sundays, and US federal holidays.
+        - Average Daily Usage 30D = Outbound Last 30 Days / 30 working days.
+        - Days Remaining = Ending Balance / Average Daily Usage 30D.
+        """
+    )
