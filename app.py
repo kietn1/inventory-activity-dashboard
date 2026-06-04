@@ -632,15 +632,13 @@ uploaded = st.sidebar.file_uploader(
 
 st.sidebar.divider()
 st.sidebar.subheader("Risk Filter")
-with st.sidebar.form("filter_form"):
-    show_risks = st.multiselect(
-        "Risk Level",
-        options=["Critical", "Warning", "Watch", "Healthy"],
-        default=["Critical", "Warning", "Watch"],
-    )
-    min_usage = st.number_input("Minimum Outbound Last 30 Days", min_value=0, value=0, step=1)
-    search_text = st.text_input("Search SKU / Description", placeholder="Example: SBED, BACKUP SWITCH...")
-    st.form_submit_button("Apply Filters")
+show_risks = st.sidebar.multiselect(
+    "Risk Level",
+    options=["Critical", "Warning", "Watch", "Healthy"],
+    default=["Critical", "Warning", "Watch"],
+)
+min_usage = st.sidebar.number_input("Minimum Outbound Last 30 Days", min_value=0, value=0, step=1)
+search_text = st.sidebar.text_input("Search SKU / Description", placeholder="Example: SBED, BACKUP SWITCH...")
 
 st.sidebar.divider()
 st.sidebar.markdown(
