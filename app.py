@@ -22,7 +22,22 @@ st.markdown(
     """
     <style>
         :root { --soft-bg:#F5F5F7; --card:#FFFFFF; --text:#111827; --muted:#6B7280; --line:rgba(17,24,39,.10); }
-        .main .block-container {padding-top: 0.9rem; padding-bottom: 1.4rem; max-width: 1500px;}
+        .main .block-container {
+            padding-top: 0.9rem;
+            padding-bottom: 1.4rem;
+            max-width: 1500px;
+            animation: fadeIn 0.35s ease-in-out;
+        }
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(6px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
         header, footer {visibility: hidden;}
         .kpi-card {
             border: 1px solid var(--line);
@@ -31,6 +46,12 @@ st.markdown(
             background: rgba(255,255,255,0.88);
             box-shadow: 0 8px 28px rgba(16, 24, 40, 0.07);
             min-height: 104px;
+            transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+        }
+        .kpi-card:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 10px 30px rgba(16, 24, 40, 0.10);
+            border-color: rgba(0,0,0,0.12);
         }
         .kpi-label {font-size: 0.82rem; color:#6B7280; font-weight: 650; margin-bottom: 7px;}
         .kpi-value {font-size: 1.72rem; color:#111827; font-weight: 800; line-height: 1.08; letter-spacing:-0.03em;}
@@ -44,10 +65,35 @@ st.markdown(
             border-radius: 16px;
             padding: 14px 14px 8px 14px;
             box-shadow: 0 4px 18px rgba(16,24,40,.05);
+            transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+        }
+        .sidebar-note:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 24px rgba(16,24,40,.08);
+            border-color: rgba(17,24,39,.12);
         }
         div[data-testid="stDataFrame"] {border-radius: 14px; overflow: hidden;}
-        div[data-testid="stSidebar"] {background:#F5F5F7;}
+        div[data-testid="stSidebar"] {background:#F5F5F7; transition: background 0.25s ease;}
         div[data-testid="stSidebar"] h1 {font-size: 1.35rem;}
+        .stButton > button,
+        .stDownloadButton > button {
+            transition: all 0.18s ease;
+            border-radius: 12px;
+        }
+        .stButton > button:hover,
+        .stDownloadButton > button:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 6px 18px rgba(16, 24, 40, 0.10);
+        }
+        div[data-testid="stTabs"] button {
+            transition: color 0.18s ease, border-color 0.18s ease, background 0.18s ease;
+        }
+        div[data-testid="stExpander"] {
+            transition: box-shadow 0.18s ease, border-color 0.18s ease;
+        }
+        div[data-testid="stExpander"]:hover {
+            box-shadow: 0 6px 18px rgba(16, 24, 40, 0.06);
+        }
     </style>
     """,
     unsafe_allow_html=True,
