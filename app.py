@@ -746,7 +746,6 @@ priority_display = prepare_display(filtered[priority_cols])
 show_limited_dataframe(priority_display, height=440, limit=250)
 
 with st.expander("Export", expanded=False):
-    st.caption("Excel export is generated only when this section is opened, so dashboard filtering stays fast.")
     st.download_button(
         "⬇️ Download processed shortage report",
         data=to_excel_bytes(model),
